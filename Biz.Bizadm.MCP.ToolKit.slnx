@@ -1,1 +1,8 @@
-<Solution />
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Biz.Bizadm.MCP.ToolKit/Biz.Bizadm.MCP.ToolKit.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Biz.Bizadm.MCP.ToolKit.Tests/Biz.Bizadm.MCP.ToolKit.Tests.csproj" />
+  </Folder>
+</Solution>
