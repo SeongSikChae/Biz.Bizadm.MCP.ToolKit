@@ -14,6 +14,7 @@ public static class BizadmToolKitMcpServerBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         // Tool 클래스 추가 시: builder.WithTools<XxxTools>();
         builder.WithTools<AmpTools>();
+        builder.WithTools<SpeakerTools>();
         return builder;
     }
 }
