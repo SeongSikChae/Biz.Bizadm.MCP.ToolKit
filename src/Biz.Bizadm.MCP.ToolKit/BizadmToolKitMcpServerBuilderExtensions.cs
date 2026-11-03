@@ -15,6 +15,7 @@ public static class BizadmToolKitMcpServerBuilderExtensions
         // Tool 클래스 추가 시: builder.WithTools<XxxTools>();
         builder.WithTools<AmpTools>();
         builder.WithTools<SpeakerTools>();
+        builder.WithTools<AudioLevelTools>();
         return builder;
     }
 }
