@@ -1,3 +1,5 @@
+using Biz.Bizadm.MCP.ToolKit.Tools;
+
 namespace Microsoft.Extensions.DependencyInjection;
 
 /// <summary>Biz.Bizadm.MCP.ToolKit의 Tool을 MCP Server에 등록하는 확장 메서드</summary>
@@ -11,6 +13,7 @@ public static class BizadmToolKitMcpServerBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         // Tool 클래스 추가 시: builder.WithTools<XxxTools>();
+        builder.WithTools<AmpTools>();
         return builder;
     }
 }
