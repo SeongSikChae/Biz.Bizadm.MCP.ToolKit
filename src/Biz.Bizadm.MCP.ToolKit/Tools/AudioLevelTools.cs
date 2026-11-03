@@ -43,6 +43,46 @@ public sealed class AudioLevelTools
         return new DbuToVrmsResult(dbu, reference, referenceVrms, referenceVrms * Math.Pow(10, dbu / 20));
     }
 
+    /// <summary>0dBFS 기준 dBu로 레벨(dBu)을 dBFS로 환산한다.</summary>
+    /// <param name="fullScaleDbu">0dBFS에 해당하는 기준 레벨(dBu)</param>
+    /// <param name="dbu">레벨(dBu)</param>
+    /// <returns>입력값과 디지털 레벨(dBFS)</returns>
+    /// <exception cref="McpException">입력이 유한수가 아니거나 0dBFS를 넘는다.</exception>
+    [McpServerTool(Name = "convert_dbu_to_dbfs", UseStructuredContent = true,
+        ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("0dBFS에 해당하는 기준 dBu로 레벨(dBu)을 dBFS로 환산한다. 0dBFS를 넘는 레벨(클리핑)은 거부한다.")]
+    public static DbuToDbfsResult ConvertDbuToDbfs(
+        [Description("0dBFS에 해당하는 기준 레벨(dBu), 예: +24")] double fullScaleDbu,
+        [Description("환산할 레벨(dBu), fullScaleDbu 이하")] double dbu)
+    {
+        EnsureFinite(fullScaleDbu, nameof(fullScaleDbu));
+        EnsureFinite(dbu, nameof(dbu));
+        if (dbu > fullScaleDbu)
+            throw new McpException($"{nameof(dbu)} must not exceed {nameof(fullScaleDbu)} (0dBFS): {dbu} > {fullScaleDbu}");
+
+        return new DbuToDbfsResult(fullScaleDbu, dbu, dbu - fullScaleDbu);
+    }
+
+    /// <summary>0dBFS 기준 dBu로 디지털 레벨(dBFS)을 dBu로 환산한다.</summary>
+    /// <param name="fullScaleDbu">0dBFS에 해당하는 기준 레벨(dBu)</param>
+    /// <param name="dbfs">디지털 레벨(dBFS)</param>
+    /// <returns>입력값과 레벨(dBu)</returns>
+    /// <exception cref="McpException">입력이 유한수가 아니거나 0dBFS를 넘는다.</exception>
+    [McpServerTool(Name = "convert_dbfs_to_dbu", UseStructuredContent = true,
+        ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
+    [Description("0dBFS에 해당하는 기준 dBu로 디지털 레벨(dBFS)을 dBu로 환산한다. 0dBFS를 넘는 레벨(클리핑)은 거부한다.")]
+    public static DbfsToDbuResult ConvertDbfsToDbu(
+        [Description("0dBFS에 해당하는 기준 레벨(dBu), 예: +24")] double fullScaleDbu,
+        [Description("환산할 디지털 레벨(dBFS), 0 이하")] double dbfs)
+    {
+        EnsureFinite(fullScaleDbu, nameof(fullScaleDbu));
+        EnsureFinite(dbfs, nameof(dbfs));
+        if (dbfs > 0)
+            throw new McpException($"{nameof(dbfs)} must not exceed 0 (0dBFS): {dbfs}");
+
+        return new DbfsToDbuResult(fullScaleDbu, dbfs, fullScaleDbu + dbfs);
+    }
+
     private static double GetReferenceVrms(DbuReference reference) => reference switch
     {
         DbuReference.Nominal => 0.775,

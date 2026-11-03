@@ -101,4 +101,67 @@ public sealed class AudioLevelToolsTests
         StringAssert.Contains(schema, "\"Nominal\"");
         StringAssert.Contains(schema, "\"Exact\"");
     }
+
+    [TestMethod]
+    [DataRow(24d, 4d, -20d)]
+    [DataRow(24d, 24d, 0d)]
+    [DataRow(18d, -2d, -20d)]
+    [DataRow(24d, -100d, -124d)]
+    public void ConvertDbuToDbfs(double fullScaleDbu, double dbu, double expected)
+    {
+        DbuToDbfsResult r = AudioLevelTools.ConvertDbuToDbfs(fullScaleDbu, dbu);
+        Assert.AreEqual(fullScaleDbu, r.FullScaleDbu);
+        Assert.AreEqual(dbu, r.Dbu);
+        Assert.AreEqual(expected, r.Dbfs, Delta);
+    }
+
+    [TestMethod]
+    [DataRow(24d, -20d, 4d)]
+    [DataRow(24d, 0d, 24d)]
+    [DataRow(18d, -20d, -2d)]
+    public void ConvertDbfsToDbu(double fullScaleDbu, double dbfs, double expected)
+    {
+        DbfsToDbuResult r = AudioLevelTools.ConvertDbfsToDbu(fullScaleDbu, dbfs);
+        Assert.AreEqual(fullScaleDbu, r.FullScaleDbu);
+        Assert.AreEqual(dbfs, r.Dbfs);
+        Assert.AreEqual(expected, r.Dbu, Delta);
+    }
+
+    [TestMethod]
+    public void Dbfs_RoundTrip()
+    {
+        double dbfs = AudioLevelTools.ConvertDbuToDbfs(24, 4.5).Dbfs;
+        Assert.AreEqual(4.5, AudioLevelTools.ConvertDbfsToDbu(24, dbfs).Dbu, Delta);
+    }
+
+    [TestMethod]
+    [DataRow(24d, 25d)] // 클리핑
+    [DataRow(double.NaN, 0d)]
+    [DataRow(24d, double.PositiveInfinity)]
+    [DataRow(double.PositiveInfinity, 0d)]
+    public void ConvertDbuToDbfs_InvalidInput_Throws(double fullScaleDbu, double dbu)
+    {
+        Assert.ThrowsExactly<McpException>(() => AudioLevelTools.ConvertDbuToDbfs(fullScaleDbu, dbu));
+    }
+
+    [TestMethod]
+    [DataRow(24d, 0.1)] // 클리핑
+    [DataRow(double.NaN, -1d)]
+    [DataRow(24d, double.NaN)]
+    [DataRow(24d, double.NegativeInfinity)]
+    public void ConvertDbfsToDbu_InvalidInput_Throws(double fullScaleDbu, double dbfs)
+    {
+        Assert.ThrowsExactly<McpException>(() => AudioLevelTools.ConvertDbfsToDbu(fullScaleDbu, dbfs));
+    }
+
+    [TestMethod]
+    public void WithBizadmToolKit_RegistersDbfsTools()
+    {
+        ServiceCollection services = new();
+        services.AddMcpServer().WithBizadmToolKit();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        List<string> names = provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).ToList();
+        CollectionAssert.Contains(names, "convert_dbu_to_dbfs");
+        CollectionAssert.Contains(names, "convert_dbfs_to_dbu");
+    }
 }
