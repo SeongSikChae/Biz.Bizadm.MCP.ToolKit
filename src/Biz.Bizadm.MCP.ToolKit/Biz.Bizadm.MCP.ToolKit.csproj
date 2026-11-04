@@ -2,14 +2,25 @@
 
   <PropertyGroup>
     <PackageId>Biz.Bizadm.MCP.ToolKit</PackageId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <Version>1.0.0</Version>
     <Authors>SeongSikChae</Authors>
     <Description>ASP.NET Core MCP Server에 WithTools로 등록하는 Tool 모음</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>mcp;model-context-protocol;mcp-server;tools;redmine;storage;audio;agent-resource</PackageTags>
     <RepositoryUrl>https://github.com/SeongSikChae/Biz.Bizadm.MCP.ToolKit</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <None Include="..\..\ReadMe.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Management.Infrastructure" />
