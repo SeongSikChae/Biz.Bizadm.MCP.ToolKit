@@ -12,6 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Management.Infrastructure" />
     <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>
 

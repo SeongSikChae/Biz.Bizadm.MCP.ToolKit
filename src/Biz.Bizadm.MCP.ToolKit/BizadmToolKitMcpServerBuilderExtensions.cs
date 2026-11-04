@@ -16,6 +16,7 @@ public static class BizadmToolKitMcpServerBuilderExtensions
         builder.WithTools<AmpTools>();
         builder.WithTools<SpeakerTools>();
         builder.WithTools<AudioLevelTools>();
+        builder.WithTools<StorageTools>();
         return builder;
     }
 }
