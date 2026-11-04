@@ -16,4 +16,8 @@
     <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Biz.Bizadm.MCP.ToolKit.Tests" />
+  </ItemGroup>
+
 </Project>
