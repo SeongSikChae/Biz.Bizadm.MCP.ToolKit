@@ -157,6 +157,244 @@ public sealed class StorageToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(null, null)]
+    [DataRow(" ", "")]
+    [DataRow("a", "b")]
+    public void CreateVirtualDisk_NotExactlyOnePool_Throws(string? poolName, string? poolId)
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreateVirtualDisk(
+            "Disk", storagePoolFriendlyName: poolName, storagePoolUniqueId: poolId, size: 1UL << 30));
+        StringAssert.Contains(ex.Message, "storagePool");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow("")]
+    [DataRow(" ")]
+    public void CreateVirtualDisk_BlankFriendlyName_Throws(string friendlyName)
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreateVirtualDisk(
+            friendlyName, storagePoolFriendlyName: Guid.NewGuid().ToString(), size: 1UL << 30));
+        StringAssert.Contains(ex.Message, "friendlyName");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CreateVirtualDisk_NotExactlyOneSize_Throws(bool both)
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreateVirtualDisk(
+            "Disk", storagePoolFriendlyName: Guid.NewGuid().ToString(),
+            size: both ? 1UL << 30 : null, useMaximumSize: both));
+        StringAssert.Contains(ex.Message, "size or useMaximumSize");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreateVirtualDisk_ColumnsConflict_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreateVirtualDisk(
+            "Disk", storagePoolFriendlyName: Guid.NewGuid().ToString(), size: 1UL << 30,
+            numberOfColumns: 2, autoNumberOfColumns: true));
+        StringAssert.Contains(ex.Message, "numberOfColumns");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreateVirtualDisk_WriteCacheConflict_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreateVirtualDisk(
+            "Disk", storagePoolFriendlyName: Guid.NewGuid().ToString(), size: 1UL << 30,
+            writeCacheSize: 1UL << 20, autoWriteCacheSize: true));
+        StringAssert.Contains(ex.Message, "writeCacheSize");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreateVirtualDisk_OtherUsageDescriptionWithoutUsage_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreateVirtualDisk(
+            "Disk", storagePoolFriendlyName: Guid.NewGuid().ToString(), size: 1UL << 30, otherUsageDescription: "x"));
+        StringAssert.Contains(ex.Message, "requires usage");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreateVirtualDisk_InvalidTimeout_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreateVirtualDisk(
+            "Disk", storagePoolFriendlyName: Guid.NewGuid().ToString(), size: 1UL << 30, timeoutSeconds: 0));
+        StringAssert.Contains(ex.Message, "timeoutSeconds");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreateVirtualDisk_PoolNotFound_Throws()
+    {
+        string name = Guid.NewGuid().ToString();
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.CreateVirtualDisk("Disk", storagePoolFriendlyName: name, size: 1UL << 30));
+        StringAssert.Contains(ex.Message, "Storage pool not found");
+        Assert.ThrowsExactly<McpException>(
+            () => StorageTools.CreateVirtualDisk("Disk", storagePoolUniqueId: name, useMaximumSize: true));
+    }
+
+    [TestMethod]
+    [OSCondition(ConditionMode.Exclude, OperatingSystems.Windows)]
+    public void CreateVirtualDisk_NonWindows_Throws()
+    {
+        Assert.ThrowsExactly<McpException>(
+            () => StorageTools.CreateVirtualDisk("Disk", storagePoolFriendlyName: "Pool", size: 1UL << 30));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(null, null)]
+    [DataRow(" ", "")]
+    [DataRow("a", "b")]
+    public void ResizeVirtualDisk_NotExactlyOneInput_Throws(string? friendlyName, string? uniqueId)
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.ResizeVirtualDisk(1UL << 30, friendlyName, uniqueId));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void ResizeVirtualDisk_ZeroSize_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.ResizeVirtualDisk(0, friendlyName: Guid.NewGuid().ToString()));
+        StringAssert.Contains(ex.Message, "size");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void ResizeVirtualDisk_InvalidTimeout_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.ResizeVirtualDisk(1UL << 30, friendlyName: Guid.NewGuid().ToString(), timeoutSeconds: -1));
+        StringAssert.Contains(ex.Message, "timeoutSeconds");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void ResizeVirtualDisk_NotFound_Throws()
+    {
+        string name = Guid.NewGuid().ToString();
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.ResizeVirtualDisk(1UL << 30, friendlyName: name));
+        StringAssert.Contains(ex.Message, "Virtual disk not found");
+        Assert.ThrowsExactly<McpException>(() => StorageTools.ResizeVirtualDisk(1UL << 30, uniqueId: name));
+    }
+
+    [TestMethod]
+    [OSCondition(ConditionMode.Exclude, OperatingSystems.Windows)]
+    public void ResizeVirtualDisk_NonWindows_Throws()
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.ResizeVirtualDisk(1UL << 30, friendlyName: "Source"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(null, null)]
+    [DataRow(" ", "")]
+    [DataRow("a", "b")]
+    public void SetVirtualDisk_NotExactlyOneInput_Throws(string? friendlyName, string? uniqueId)
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.SetVirtualDisk(friendlyName, uniqueId, newFriendlyName: "x"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void SetVirtualDisk_NoChange_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.SetVirtualDisk(friendlyName: Guid.NewGuid().ToString()));
+        StringAssert.Contains(ex.Message, "at least one");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void SetVirtualDisk_BlankNewFriendlyName_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.SetVirtualDisk(friendlyName: Guid.NewGuid().ToString(), newFriendlyName: " "));
+        StringAssert.Contains(ex.Message, "newFriendlyName");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void SetVirtualDisk_OtherUsageDescriptionWithoutUsage_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.SetVirtualDisk(friendlyName: Guid.NewGuid().ToString(), otherUsageDescription: "x"));
+        StringAssert.Contains(ex.Message, "requires usage");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void SetVirtualDisk_NotFound_Throws()
+    {
+        string name = Guid.NewGuid().ToString();
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.SetVirtualDisk(friendlyName: name, access: VirtualDiskAccess.ReadWrite));
+        StringAssert.Contains(ex.Message, "Virtual disk not found");
+        Assert.ThrowsExactly<McpException>(() => StorageTools.SetVirtualDisk(uniqueId: name, isManualAttach: false));
+    }
+
+    [TestMethod]
+    [OSCondition(ConditionMode.Exclude, OperatingSystems.Windows)]
+    public void SetVirtualDisk_NonWindows_Throws()
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.SetVirtualDisk(friendlyName: "Source", newFriendlyName: "x"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(null, null)]
+    [DataRow(" ", "")]
+    [DataRow("a", "b")]
+    public void RemoveVirtualDisk_NotExactlyOneInput_Throws(string? friendlyName, string? uniqueId)
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.RemoveVirtualDisk(friendlyName, uniqueId, confirm: true));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void RemoveVirtualDisk_NotConfirmed_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.RemoveVirtualDisk(friendlyName: Guid.NewGuid().ToString()));
+        StringAssert.Contains(ex.Message, "confirm");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void RemoveVirtualDisk_InvalidTimeout_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.RemoveVirtualDisk(friendlyName: Guid.NewGuid().ToString(), confirm: true, timeoutSeconds: 0));
+        StringAssert.Contains(ex.Message, "timeoutSeconds");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void RemoveVirtualDisk_NotFound_Throws()
+    {
+        string name = Guid.NewGuid().ToString();
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.RemoveVirtualDisk(friendlyName: name, confirm: true));
+        StringAssert.Contains(ex.Message, "Virtual disk not found");
+        Assert.ThrowsExactly<McpException>(() => StorageTools.RemoveVirtualDisk(uniqueId: name, confirm: true));
+    }
+
+    [TestMethod]
+    [OSCondition(ConditionMode.Exclude, OperatingSystems.Windows)]
+    public void RemoveVirtualDisk_NonWindows_Throws()
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.RemoveVirtualDisk(friendlyName: "Source", confirm: true));
+    }
+
+    [TestMethod]
     public void WithBizadmToolKit_RegistersStorageTools()
     {
         ServiceCollection services = new();
@@ -167,6 +405,39 @@ public sealed class StorageToolsTests
         CollectionAssert.Contains(names, "get_storage_pool");
         CollectionAssert.Contains(names, "list_virtual_disks");
         CollectionAssert.Contains(names, "get_virtual_disk");
+        CollectionAssert.Contains(names, "create_virtual_disk");
+        CollectionAssert.Contains(names, "resize_virtual_disk");
+        CollectionAssert.Contains(names, "set_virtual_disk");
+        CollectionAssert.Contains(names, "remove_virtual_disk");
+    }
+
+    [TestMethod]
+    [DataRow("create_virtual_disk", false)]
+    [DataRow("resize_virtual_disk", false)]
+    [DataRow("set_virtual_disk", false)]
+    [DataRow("remove_virtual_disk", true)]
+    public void VirtualDiskWriteTools_Annotations(string name, bool destructive)
+    {
+        ServiceCollection services = new();
+        services.AddMcpServer().WithBizadmToolKit();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        McpServerTool tool = provider.GetServices<McpServerTool>().Single(t => t.ProtocolTool.Name == name);
+        Assert.AreEqual(destructive, tool.ProtocolTool.Annotations!.DestructiveHint);
+        Assert.AreEqual(false, tool.ProtocolTool.Annotations.ReadOnlyHint);
+        Assert.AreEqual(false, tool.ProtocolTool.Annotations.OpenWorldHint);
+    }
+
+    [TestMethod]
+    public void CreateVirtualDisk_InputSchema_EnumsAreStringWithoutCancellationToken()
+    {
+        ServiceCollection services = new();
+        services.AddMcpServer().WithBizadmToolKit();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        McpServerTool tool = provider.GetServices<McpServerTool>()
+            .Single(t => t.ProtocolTool.Name == "create_virtual_disk");
+        string schema = tool.ProtocolTool.InputSchema.GetRawText();
+        StringAssert.Contains(schema, "\"StorageRack\"");
+        Assert.IsFalse(schema.Contains("cancellationToken", StringComparison.OrdinalIgnoreCase));
     }
 
     [TestMethod]
