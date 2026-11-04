@@ -14,16 +14,6 @@ ASP.NET Core MCP Server에 `WithTools`로 등록하는 Tool 모음 클래스 라
 <PackageReference Include="Biz.Bizadm.MCP.ToolKit" Version="1.0.0" />
 ```
 
-### 전체 Tool 등록
-
-```csharp
-builder.Services.AddMcpServer()
-    .WithHttpTransport()
-    .WithBizadmToolKit();
-```
-
-`WithBizadmToolKit()`은 `Microsoft.Extensions.DependencyInjection` 네임스페이스에 있어 별도 `using`이 필요 없습니다.
-
 ### 개별 Tool 등록
 
 Tool 클래스는 `public`이므로 필요한 것만 골라 등록할 수 있습니다.

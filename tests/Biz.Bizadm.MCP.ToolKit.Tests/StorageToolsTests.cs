@@ -564,10 +564,10 @@ public sealed class StorageToolsTests
     }
 
     [TestMethod]
-    public void WithBizadmToolKit_RegistersStorageTools()
+    public void WithTools_RegistersStorageTools()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         List<string> names = provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).ToList();
         CollectionAssert.Contains(names, "list_storage_pools");
@@ -590,7 +590,7 @@ public sealed class StorageToolsTests
     public void DiskFormatTools_Annotations(string name, bool destructive)
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>().Single(t => t.ProtocolTool.Name == name);
         Assert.AreEqual(destructive, tool.ProtocolTool.Annotations!.DestructiveHint);
@@ -602,7 +602,7 @@ public sealed class StorageToolsTests
     public void DiskFormatTools_InputSchema_EnumsAreStringWithoutCancellationToken()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         List<McpServerTool> tools = provider.GetServices<McpServerTool>().ToList();
         string format = tools.Single(t => t.ProtocolTool.Name == "format_volume").ProtocolTool.InputSchema.GetRawText();
@@ -619,7 +619,7 @@ public sealed class StorageToolsTests
     public void CreatePartition_NullFields_SerializeAllRequiredProperties()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == "create_partition");
@@ -641,7 +641,7 @@ public sealed class StorageToolsTests
     public void FormatVolume_NullFields_SerializeAllRequiredProperties()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == "format_volume");
@@ -663,7 +663,7 @@ public sealed class StorageToolsTests
     public void VirtualDiskWriteTools_Annotations(string name, bool destructive)
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>().Single(t => t.ProtocolTool.Name == name);
         Assert.AreEqual(destructive, tool.ProtocolTool.Annotations!.DestructiveHint);
@@ -675,7 +675,7 @@ public sealed class StorageToolsTests
     public void CreateVirtualDisk_InputSchema_EnumsAreStringWithoutCancellationToken()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == "create_virtual_disk");
@@ -688,7 +688,7 @@ public sealed class StorageToolsTests
     public void GetVirtualDisk_OutputSchema_EnumsAreString()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == "get_virtual_disk");
@@ -701,7 +701,7 @@ public sealed class StorageToolsTests
     public void ListVirtualDisks_NullParityLayout_SerializeAllRequiredProperties()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == "list_virtual_disks");
@@ -723,7 +723,7 @@ public sealed class StorageToolsTests
     public void GetStoragePool_OutputSchema_HealthStatusIsString()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == "get_storage_pool");
@@ -736,7 +736,7 @@ public sealed class StorageToolsTests
     public void ListStoragePools_NullFields_SerializeAllRequiredProperties()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<StorageTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == "list_storage_pools");

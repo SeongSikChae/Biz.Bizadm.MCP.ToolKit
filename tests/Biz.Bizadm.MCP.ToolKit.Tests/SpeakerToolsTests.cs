@@ -38,10 +38,10 @@ public sealed class SpeakerToolsTests
     }
 
     [TestMethod]
-    public void WithBizadmToolKit_RegistersCalculateSpeakerSpl()
+    public void WithTools_RegistersCalculateSpeakerSpl()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<SpeakerTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         CollectionAssert.Contains(
             provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).ToList(),
@@ -52,7 +52,7 @@ public sealed class SpeakerToolsTests
     public void CalculateSpeakerSpl_InputSchema_SourceTypeIsString()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<SpeakerTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == "calculate_speaker_spl");

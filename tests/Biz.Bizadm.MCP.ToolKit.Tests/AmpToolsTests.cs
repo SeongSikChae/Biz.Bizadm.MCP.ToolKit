@@ -35,10 +35,10 @@ public sealed class AmpToolsTests
     }
 
     [TestMethod]
-    public void WithBizadmToolKit_RegistersCalculateAmpMaxOutput()
+    public void WithTools_RegistersCalculateAmpMaxOutput()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<AmpTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         CollectionAssert.Contains(
             provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).ToList(),
@@ -85,10 +85,10 @@ public sealed class AmpToolsTests
     }
 
     [TestMethod]
-    public void WithBizadmToolKit_RegistersCalculateAmpLoadOutput()
+    public void WithTools_RegistersCalculateAmpLoadOutput()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<AmpTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         CollectionAssert.Contains(
             provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).ToList(),

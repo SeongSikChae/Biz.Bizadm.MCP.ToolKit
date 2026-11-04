@@ -6,7 +6,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 /// <summary>AgentResource Tool(rule·skill·tool·docs 문서)을 MCP Server에 등록하는 확장 메서드</summary>
 public static class AgentResourceMcpServerBuilderExtensions
 {
-    /// <summary>AgentResource Tool을 등록한다. <see cref="BizadmToolKitMcpServerBuilderExtensions.WithBizadmToolKit"/>에는 포함되지 않는다.</summary>
+    /// <summary>AgentResource Tool(rule·skill·tool·docs 4개 클래스, 21개)을 옵션과 함께 등록한다.</summary>
     /// <param name="builder">Tool을 등록할 MCP Server 빌더</param>
     /// <param name="configure">문서 루트 옵션 설정</param>
     /// <returns>같은 <paramref name="builder"/></returns>

@@ -35,17 +35,6 @@ public sealed class AgentResourceRegistrationTests
     }
 
     [TestMethod]
-    public void WithBizadmToolKit_DoesNotRegisterAgentResourceTools()
-    {
-        ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
-        using ServiceProvider provider = services.BuildServiceProvider();
-        List<string> names = provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).ToList();
-        foreach (string name in ToolNames)
-            CollectionAssert.DoesNotContain(names, name);
-    }
-
-    [TestMethod]
     public void WithAgentResourceTools_NullArguments_Throw()
     {
         Assert.ThrowsExactly<ArgumentNullException>(() => AgentResourceMcpServerBuilderExtensions.WithAgentResourceTools(null!, _ => { }));

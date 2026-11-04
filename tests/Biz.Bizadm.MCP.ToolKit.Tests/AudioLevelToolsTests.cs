@@ -77,10 +77,10 @@ public sealed class AudioLevelToolsTests
     }
 
     [TestMethod]
-    public void WithBizadmToolKit_RegistersAudioLevelTools()
+    public void WithTools_RegistersAudioLevelTools()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<AudioLevelTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         List<string> names = provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).ToList();
         CollectionAssert.Contains(names, "convert_vrms_to_dbu");
@@ -93,7 +93,7 @@ public sealed class AudioLevelToolsTests
     public void InputSchema_ReferenceIsString(string toolName)
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<AudioLevelTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         McpServerTool tool = provider.GetServices<McpServerTool>()
             .Single(t => t.ProtocolTool.Name == toolName);
@@ -155,10 +155,10 @@ public sealed class AudioLevelToolsTests
     }
 
     [TestMethod]
-    public void WithBizadmToolKit_RegistersDbfsTools()
+    public void WithTools_RegistersDbfsTools()
     {
         ServiceCollection services = new();
-        services.AddMcpServer().WithBizadmToolKit();
+        services.AddMcpServer().WithTools<AudioLevelTools>();
         using ServiceProvider provider = services.BuildServiceProvider();
         List<string> names = provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).ToList();
         CollectionAssert.Contains(names, "convert_dbu_to_dbfs");
