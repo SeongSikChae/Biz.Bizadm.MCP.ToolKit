@@ -1,6 +1,9 @@
+using System.Text.Json.Serialization;
+
 namespace Biz.Bizadm.MCP.ToolKit.Models.Storage;
 
 /// <summary>저장소 풀 정보(MSFT_StoragePool)</summary>
+/// <remarks>출력 스키마가 모든 속성을 required로 두므로 nullable 속성도 null을 그대로 쓴다.</remarks>
 /// <param name="FriendlyName">저장소 풀 이름</param>
 /// <param name="UniqueId">저장소 풀 고유 ID</param>
 /// <param name="ObjectId">CIM 개체 ID</param>
@@ -28,9 +31,9 @@ public sealed record StoragePoolInfo(
     bool IsClustered,
     ulong Size,
     ulong AllocatedSize,
-    ulong? LogicalSectorSize,
-    ulong? PhysicalSectorSize,
-    string? ResiliencySettingNameDefault,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] ulong? LogicalSectorSize,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] ulong? PhysicalSectorSize,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? ResiliencySettingNameDefault,
     StorageProvisioningType ProvisioningTypeDefault,
     StoragePoolUsage Usage,
     ushort Version);

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Biz.Bizadm.MCP.ToolKit.Models.Storage;
 using Biz.Bizadm.MCP.ToolKit.Tools;
 using Microsoft.Extensions.DependencyInjection;
@@ -91,6 +92,27 @@ public sealed class StorageToolsTests
         string schema = tool.ProtocolTool.OutputSchema!.Value.GetRawText();
         StringAssert.Contains(schema, "\"Healthy\"");
         StringAssert.Contains(schema, "\"Thin\"");
+    }
+
+    [TestMethod]
+    public void ListStoragePools_NullFields_SerializeAllRequiredProperties()
+    {
+        ServiceCollection services = new();
+        services.AddMcpServer().WithBizadmToolKit();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        McpServerTool tool = provider.GetServices<McpServerTool>()
+            .Single(t => t.ProtocolTool.Name == "list_storage_pools");
+        JsonElement poolSchema = tool.ProtocolTool.OutputSchema!.Value
+            .GetProperty("properties").GetProperty("storagePools").GetProperty("items");
+
+        StoragePoolInfo pool = new("Primordial", "{id}", "{object}", [StorageOperationalStatus.OK],
+            StorageHealthStatus.Healthy, true, false, false, 1, 0, null, null, null,
+            StorageProvisioningType.Fixed, StoragePoolUsage.Other, 29);
+        JsonElement json = JsonSerializer.SerializeToElement(pool, McpJsonUtilities.DefaultOptions);
+
+        foreach (JsonElement required in poolSchema.GetProperty("required").EnumerateArray())
+            Assert.IsTrue(json.TryGetProperty(required.GetString()!, out _), required.GetString());
+        Assert.AreEqual(JsonValueKind.Null, json.GetProperty("logicalSectorSize").ValueKind);
     }
 
     private static void AssertSamePool(StoragePoolInfo expected, StoragePoolInfo actual)
