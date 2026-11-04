@@ -380,6 +380,205 @@ public sealed class StorageTools
         });
     }
 
+    /// <summary>로컬 Windows 가상 디스크의 디스크를 초기화한다(Initialize-Disk). RAW 디스크만 허용한다.</summary>
+    /// <param name="friendlyName">가상 디스크 이름(대소문자 무시)</param>
+    /// <param name="uniqueId">가상 디스크 고유 ID(대소문자 무시)</param>
+    /// <param name="partitionStyle">파티션 스타일(MBR 또는 GPT)</param>
+    /// <param name="confirm">true일 때만 초기화한다</param>
+    /// <returns>초기화한 디스크 정보</returns>
+    /// <exception cref="McpException">Windows가 아니거나, 입력이 잘못되었거나, 가상 디스크·디스크가 없거나, 디스크가 RAW가 아니거나, CIM 호출에 실패했다.</exception>
+    [McpServerTool(Name = "initialize_disk", UseStructuredContent = true,
+        ReadOnly = false, Idempotent = false, Destructive = true, OpenWorld = false)]
+    [Description("로컬 Windows 저장소 공간(가상 디스크)의 디스크를 GPT 또는 MBR로 초기화한다(Initialize-Disk). 초기화되지 않은(RAW) 디스크만 허용하며, 이미 초기화된 디스크는 오류를 반환한다. RAW로 보이는 디스크에도 데이터가 있을 수 있으며 초기화하면 덮어쓴다. confirm=true가 필요하다. 대상은 가상 디스크 friendlyName 또는 uniqueId 중 하나로 지정한다. Windows가 아니면 오류를 반환한다.")]
+    public static DiskInfo InitializeDisk(
+        [Description("가상 디스크 이름(FriendlyName), uniqueId와 함께 쓰지 않는다")] string? friendlyName = null,
+        [Description("가상 디스크 고유 ID(UniqueId), friendlyName과 함께 쓰지 않는다")] string? uniqueId = null,
+        [Description("파티션 스타일(PartitionStyle), MBR 또는 GPT, 기본 GPT")] DiskPartitionStyle partitionStyle = DiskPartitionStyle.GPT,
+        [Description("초기화를 확인한다. true가 아니면 초기화하지 않고 오류를 반환한다")] bool confirm = false)
+    {
+        EnsureWindows();
+        EnsureExactlyOne(friendlyName, uniqueId);
+        if (!confirm)
+            throw new McpException("Set confirm to true to initialize the disk; a RAW disk may still contain data that will be overwritten");
+        if (partitionStyle == DiskPartitionStyle.Raw)
+            throw new McpException("partitionStyle must be MBR or GPT");
+        return WithVirtualDiskDisk(friendlyName, uniqueId, "initialize the disk of", (session, disk) =>
+        {
+            DiskPartitionStyle style = (DiskPartitionStyle)(ushort)disk.CimInstanceProperties["PartitionStyle"].Value;
+            if (style != DiskPartitionStyle.Raw)
+                throw new McpException($"Disk {disk.CimInstanceProperties["Number"].Value} is already initialized ({style}); " +
+                    "only RAW disks can be initialized");
+            using CimMethodParametersCollection args = new();
+            args.Add(InParam("PartitionStyle", (ushort)partitionStyle, CimType.UInt16));
+            Invoke(session, disk, "Initialize", args, "initialize the disk of", 0, CancellationToken.None, out _);
+            using CimInstance refreshed = session.GetInstance(StorageNamespace, disk);
+            return ToDiskInfo(refreshed.CimInstanceProperties);
+        });
+    }
+
+    /// <summary>로컬 Windows 가상 디스크의 디스크 빈 공간에 파티션을 만든다(New-Partition).</summary>
+    /// <param name="friendlyName">가상 디스크 이름(대소문자 무시)</param>
+    /// <param name="uniqueId">가상 디스크 고유 ID(대소문자 무시)</param>
+    /// <param name="size">크기(바이트)</param>
+    /// <param name="useMaximumSize">가장 큰 빈 공간 전체 사용</param>
+    /// <param name="offset">시작 위치(바이트)</param>
+    /// <param name="alignment">정렬 단위(바이트)</param>
+    /// <param name="driveLetter">드라이브 문자</param>
+    /// <param name="assignDriveLetter">드라이브 문자 자동 할당 여부</param>
+    /// <param name="gptType">GPT 파티션 유형</param>
+    /// <param name="mbrType">MBR 파티션 유형</param>
+    /// <param name="isHidden">숨김 여부</param>
+    /// <param name="isActive">활성 파티션 여부(MBR)</param>
+    /// <returns>만든 파티션 정보</returns>
+    /// <exception cref="McpException">Windows가 아니거나, 입력이 잘못되었거나, 가상 디스크·디스크가 없거나, 디스크가 초기화되지 않았거나, CIM 호출에 실패했다.</exception>
+    [McpServerTool(Name = "create_partition", UseStructuredContent = true,
+        ReadOnly = false, Idempotent = false, Destructive = false, OpenWorld = false)]
+    [Description("로컬 Windows 저장소 공간(가상 디스크)의 초기화된 디스크 빈 공간에 파티션을 만든다(New-Partition). 기존 파티션은 바꾸지 않는다. 초기화되지 않은(RAW) 디스크는 오류를 반환한다. size 또는 useMaximumSize 중 하나를 지정한다. driveLetter를 지정하지 않으면 드라이브 문자를 자동 할당하며, assignDriveLetter=false면 할당하지 않는다. 대상은 가상 디스크 friendlyName 또는 uniqueId 중 하나로 지정한다. Windows가 아니면 오류를 반환한다.")]
+    public static PartitionInfo CreatePartition(
+        [Description("가상 디스크 이름(FriendlyName), uniqueId와 함께 쓰지 않는다")] string? friendlyName = null,
+        [Description("가상 디스크 고유 ID(UniqueId), friendlyName과 함께 쓰지 않는다")] string? uniqueId = null,
+        [Description("크기(바이트, Size), useMaximumSize와 함께 쓰지 않는다")] ulong? size = null,
+        [Description("가장 큰 빈 공간 전체 사용(UseMaximumSize), size와 함께 쓰지 않는다")] bool useMaximumSize = false,
+        [Description("시작 위치(바이트, Offset)")] ulong? offset = null,
+        [Description("정렬 단위(바이트, Alignment)")] uint? alignment = null,
+        [Description("드라이브 문자(DriveLetter), A-Z 한 글자")] string? driveLetter = null,
+        [Description("드라이브 문자 자동 할당(AssignDriveLetter), 생략하면 true, driveLetter와 false를 함께 쓰지 않는다")] bool? assignDriveLetter = null,
+        [Description("GPT 파티션 유형(GptType), mbrType과 함께 쓰지 않는다")] PartitionGptType? gptType = null,
+        [Description("MBR 파티션 유형(MbrType), gptType과 함께 쓰지 않는다")] PartitionMbrType? mbrType = null,
+        [Description("숨김 여부(IsHidden)")] bool? isHidden = null,
+        [Description("활성 파티션 여부(IsActive, MBR 디스크)")] bool? isActive = null)
+    {
+        EnsureWindows();
+        EnsureExactlyOne(friendlyName, uniqueId);
+        if (size.HasValue == useMaximumSize)
+            throw new McpException("Specify exactly one of size or useMaximumSize");
+        if (driveLetter is not null && (driveLetter.Length != 1 || !char.IsAsciiLetter(driveLetter[0])))
+            throw new McpException("driveLetter must be a single letter A-Z");
+        if (driveLetter is not null && assignDriveLetter == false)
+            throw new McpException("driveLetter cannot be used with assignDriveLetter=false");
+        if (gptType is not null && mbrType is not null)
+            throw new McpException("Specify only one of gptType or mbrType");
+        return WithVirtualDiskDisk(friendlyName, uniqueId, "create a partition on", (session, disk) =>
+        {
+            if ((ushort)disk.CimInstanceProperties["PartitionStyle"].Value == (ushort)DiskPartitionStyle.Raw)
+                throw new McpException($"Disk {disk.CimInstanceProperties["Number"].Value} is not initialized; run initialize_disk first");
+            using CimMethodParametersCollection args = new();
+            if (size is { } s)
+                args.Add(InParam("Size", s, CimType.UInt64));
+            if (useMaximumSize)
+                args.Add(InParam("UseMaximumSize", true, CimType.Boolean));
+            if (offset is { } o)
+                args.Add(InParam("Offset", o, CimType.UInt64));
+            if (alignment is { } a)
+                args.Add(InParam("Alignment", a, CimType.UInt32));
+            if (driveLetter is not null)
+                args.Add(InParam("DriveLetter", char.ToUpperInvariant(driveLetter[0]), CimType.Char16));
+            else
+                args.Add(InParam("AssignDriveLetter", assignDriveLetter ?? true, CimType.Boolean));
+            if (gptType is { } g)
+                args.Add(InParam("GptType", GptTypeGuid(g), CimType.String));
+            if (mbrType is { } m)
+                args.Add(InParam("MbrType", (ushort)m, CimType.UInt16));
+            if (isHidden is { } h)
+                args.Add(InParam("IsHidden", h, CimType.Boolean));
+            if (isActive is { } act)
+                args.Add(InParam("IsActive", act, CimType.Boolean));
+            CimMethodResult result = Invoke(session, disk, "CreatePartition", args, "create a partition on",
+                0, CancellationToken.None, out _);
+            using CimInstance created = (CimInstance)result.OutParameters["CreatedPartition"].Value;
+            using CimInstance refreshed = session.GetInstance(StorageNamespace, created);
+            return ToPartitionInfo(refreshed.CimInstanceProperties);
+        });
+    }
+
+    /// <summary>로컬 Windows 가상 디스크의 파티션 1개에 있는 볼륨을 포맷한다(Format-Volume). 포맷되지 않은 볼륨만 허용한다.</summary>
+    /// <param name="partitionNumber">파티션 번호</param>
+    /// <param name="friendlyName">가상 디스크 이름(대소문자 무시)</param>
+    /// <param name="uniqueId">가상 디스크 고유 ID(대소문자 무시)</param>
+    /// <param name="fileSystem">파일 시스템</param>
+    /// <param name="newFileSystemLabel">볼륨 레이블</param>
+    /// <param name="allocationUnitSize">할당 단위 크기(바이트)</param>
+    /// <param name="full">전체 포맷 여부</param>
+    /// <param name="compress">압축 사용 여부</param>
+    /// <param name="shortFileNameSupport">8.3 짧은 파일 이름 지원 여부</param>
+    /// <param name="setIntegrityStreams">무결성 스트림 사용 여부(ReFS)</param>
+    /// <param name="useLargeFRS">큰 파일 레코드 세그먼트 사용 여부(NTFS)</param>
+    /// <param name="disableHeatGathering">열 수집 비활성화 여부(ReFS)</param>
+    /// <param name="isDAX">DAX 모드 여부</param>
+    /// <param name="noTrim">TRIM 생략 여부</param>
+    /// <param name="devDrive">개발 드라이브 여부(ReFS)</param>
+    /// <param name="confirm">true일 때만 포맷한다</param>
+    /// <param name="timeoutSeconds">저장소 job 대기 제한시간(초)</param>
+    /// <param name="cancellationToken">요청 취소 토큰</param>
+    /// <returns>포맷한 볼륨 정보</returns>
+    /// <exception cref="McpException">Windows가 아니거나, 입력이 잘못되었거나, 가상 디스크·디스크·파티션·볼륨이 없거나, 볼륨이 이미 포맷되었거나, CIM 호출에 실패했다.</exception>
+    [McpServerTool(Name = "format_volume", UseStructuredContent = true,
+        ReadOnly = false, Idempotent = false, Destructive = true, OpenWorld = false)]
+    [Description("로컬 Windows 저장소 공간(가상 디스크)의 파티션 1개에 있는 볼륨을 포맷한다(Format-Volume). 파일 시스템이 없는(RAW) 볼륨만 허용하며, 이미 포맷된 볼륨은 오류를 반환한다. 잠긴 BitLocker 볼륨, 인식되지 않는 파일 시스템처럼 RAW로 보이는 볼륨에도 데이터가 있을 수 있으며 포맷하면 사라진다. confirm=true가 필요하다. 대상은 가상 디스크 friendlyName 또는 uniqueId 중 하나와 partitionNumber로 지정한다. Windows가 아니면 오류를 반환한다.")]
+    public static VolumeInfo FormatVolume(
+        [Description("파티션 번호(PartitionNumber), create_partition 결과의 partitionNumber")] uint partitionNumber,
+        [Description("가상 디스크 이름(FriendlyName), uniqueId와 함께 쓰지 않는다")] string? friendlyName = null,
+        [Description("가상 디스크 고유 ID(UniqueId), friendlyName과 함께 쓰지 않는다")] string? uniqueId = null,
+        [Description("파일 시스템(FileSystem), 생략하면 시스템 기본값")] VolumeFileSystem? fileSystem = null,
+        [Description("볼륨 레이블(NewFileSystemLabel)")] string? newFileSystemLabel = null,
+        [Description("할당 단위 크기(바이트, AllocationUnitSize)")] uint? allocationUnitSize = null,
+        [Description("전체 포맷(Full), 생략하면 빠른 포맷")] bool? full = null,
+        [Description("압축 사용(Compress)")] bool? compress = null,
+        [Description("8.3 짧은 파일 이름 지원(ShortFileNameSupport)")] bool? shortFileNameSupport = null,
+        [Description("무결성 스트림 사용(SetIntegrityStreams, ReFS)")] bool? setIntegrityStreams = null,
+        [Description("큰 파일 레코드 세그먼트 사용(UseLargeFRS, NTFS)")] bool? useLargeFRS = null,
+        [Description("열 수집 비활성화(DisableHeatGathering, ReFS)")] bool? disableHeatGathering = null,
+        [Description("DAX 모드(IsDAX)")] bool? isDAX = null,
+        [Description("TRIM 생략(NoTrim)")] bool? noTrim = null,
+        [Description("개발 드라이브(DevDrive, ReFS)")] bool? devDrive = null,
+        [Description("포맷을 확인한다. true가 아니면 포맷하지 않고 오류를 반환한다")] bool confirm = false,
+        [Description("저장소 job으로 진행될 때 완료를 기다리는 제한시간(초), 초과해도 job은 계속 진행된다")] int timeoutSeconds = 300,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureWindows();
+        EnsureExactlyOne(friendlyName, uniqueId);
+        if (!confirm)
+            throw new McpException("Set confirm to true to format the volume; a RAW volume may still contain data " +
+                "(for example a locked BitLocker volume) that will be lost");
+        if (partitionNumber == 0)
+            throw new McpException("partitionNumber must be greater than 0");
+        EnsureTimeout(timeoutSeconds);
+        return WithVirtualDiskDisk(friendlyName, uniqueId, "format a volume on", (session, disk) =>
+        {
+            using CimInstance partition = FindPartition(session, disk, partitionNumber);
+            using CimInstance volume = FindVolume(session, partition);
+            if (volume.CimInstanceProperties["FileSystem"].Value is string { Length: > 0 } fs
+                && !string.Equals(fs, "RAW", StringComparison.OrdinalIgnoreCase))
+                throw new McpException($"Volume on partition {partitionNumber} is already formatted ({fs}); " +
+                    "only unformatted volumes can be formatted");
+            using CimMethodParametersCollection args = new();
+            if (fileSystem is { } f)
+                args.Add(InParam("FileSystem", f.ToString(), CimType.String));
+            if (newFileSystemLabel is not null)
+                args.Add(InParam("FileSystemLabel", newFileSystemLabel, CimType.String));
+            if (allocationUnitSize is { } aus)
+                args.Add(InParam("AllocationUnitSize", aus, CimType.UInt32));
+            AddFlag(args, "Full", full);
+            AddFlag(args, "Compress", compress);
+            AddFlag(args, "ShortFileNameSupport", shortFileNameSupport);
+            AddFlag(args, "SetIntegrityStreams", setIntegrityStreams);
+            AddFlag(args, "UseLargeFRS", useLargeFRS);
+            AddFlag(args, "DisableHeatGathering", disableHeatGathering);
+            AddFlag(args, "IsDAX", isDAX);
+            AddFlag(args, "NoTrim", noTrim);
+            AddFlag(args, "DevDrive", devDrive);
+            Invoke(session, volume, "Format", args, "format a volume on", timeoutSeconds, cancellationToken, out _);
+            using CimInstance refreshed = session.GetInstance(StorageNamespace, volume);
+            return ToVolumeInfo(refreshed.CimInstanceProperties);
+        });
+    }
+
+    private static void AddFlag(CimMethodParametersCollection args, string name, bool? value)
+    {
+        if (value is { } v)
+            args.Add(InParam(name, v, CimType.Boolean));
+    }
+
     private static void EnsureWindows()
     {
         if (!OperatingSystem.IsWindows())
@@ -586,4 +785,106 @@ public sealed class StorageTools
         (bool)p["IsDeduplicationEnabled"].Value,
         (bool)p["IsEnclosureAware"].Value,
         (ulong)p["WriteCacheSize"].Value);
+
+    private static T WithVirtualDiskDisk<T>(string? friendlyName, string? uniqueId, string action,
+        Func<CimSession, CimInstance, T> operation) =>
+        WithVirtualDisk(friendlyName, uniqueId, action, (session, virtualDisk) =>
+        {
+            List<CimInstance> disks = session.EnumerateAssociatedInstances(StorageNamespace, virtualDisk,
+                "MSFT_VirtualDiskToDisk", "MSFT_Disk", "VirtualDisk", "Disk").ToList();
+            try
+            {
+                if (disks.Count == 0)
+                    throw new McpException(
+                        $"Virtual disk '{virtualDisk.CimInstanceProperties["FriendlyName"].Value}' has no disk; it may be detached");
+                return operation(session, disks[0]);
+            }
+            finally
+            {
+                foreach (CimInstance disk in disks)
+                    disk.Dispose();
+            }
+        });
+
+    private static CimInstance FindPartition(CimSession session, CimInstance disk, uint partitionNumber)
+    {
+        CimInstance? found = null;
+        foreach (CimInstance partition in session.EnumerateAssociatedInstances(StorageNamespace, disk,
+            "MSFT_DiskToPartition", "MSFT_Partition", "Disk", "Partition"))
+        {
+            if (found is null && (uint)partition.CimInstanceProperties["PartitionNumber"].Value == partitionNumber)
+                found = partition;
+            else
+                partition.Dispose();
+        }
+        return found ?? throw new McpException(
+            $"Partition {partitionNumber} not found on disk {disk.CimInstanceProperties["Number"].Value}");
+    }
+
+    private static CimInstance FindVolume(CimSession session, CimInstance partition)
+    {
+        CimInstance? found = null;
+        foreach (CimInstance volume in session.EnumerateAssociatedInstances(StorageNamespace, partition,
+            "MSFT_PartitionToVolume", "MSFT_Volume", "Partition", "Volume"))
+        {
+            if (found is null)
+                found = volume;
+            else
+                volume.Dispose();
+        }
+        return found ?? throw new McpException(
+            $"Partition {partition.CimInstanceProperties["PartitionNumber"].Value} on disk " +
+            $"{partition.CimInstanceProperties["DiskNumber"].Value} has no volume");
+    }
+
+    private static string GptTypeGuid(PartitionGptType type) => type switch
+    {
+        PartitionGptType.SystemPartition => "{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}",
+        PartitionGptType.MicrosoftReserved => "{e3c9e316-0b5c-4db8-817d-f92df00215ae}",
+        PartitionGptType.BasicData => "{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}",
+        PartitionGptType.MicrosoftRecovery => "{de94bba4-06d1-4d40-a16a-bfd50179d6ac}",
+        _ => throw new McpException($"Unsupported gptType: {type}"),
+    };
+
+    private static string? ToDriveLetter(object? value) =>
+        value is char c && c != '\0' ? c.ToString() : null;
+
+    private static DiskInfo ToDiskInfo(CimKeyedCollection<CimProperty> p) => new(
+        (uint)p["Number"].Value,
+        (string)p["FriendlyName"].Value,
+        (string)p["UniqueId"].Value,
+        (DiskPartitionStyle)(ushort)p["PartitionStyle"].Value,
+        (ulong)p["Size"].Value,
+        (ulong)p["AllocatedSize"].Value,
+        (ulong)p["LargestFreeExtent"].Value,
+        (uint)p["NumberOfPartitions"].Value,
+        (uint)p["LogicalSectorSize"].Value,
+        (uint)p["PhysicalSectorSize"].Value,
+        (bool)p["IsOffline"].Value,
+        (bool)p["IsReadOnly"].Value,
+        (StorageHealthStatus)(ushort)p["HealthStatus"].Value);
+
+    private static PartitionInfo ToPartitionInfo(CimKeyedCollection<CimProperty> p) => new(
+        (uint)p["DiskNumber"].Value,
+        (uint)p["PartitionNumber"].Value,
+        ToDriveLetter(p["DriveLetter"].Value),
+        (string[]?)p["AccessPaths"].Value ?? [],
+        (ulong)p["Offset"].Value,
+        (ulong)p["Size"].Value,
+        (string?)p["GptType"].Value,
+        (ushort?)p["MbrType"].Value,
+        (bool)p["IsActive"].Value,
+        (bool)p["IsHidden"].Value,
+        (bool)p["IsReadOnly"].Value,
+        (bool)p["IsOffline"].Value);
+
+    private static VolumeInfo ToVolumeInfo(CimKeyedCollection<CimProperty> p) => new(
+        (string)p["UniqueId"].Value,
+        ToDriveLetter(p["DriveLetter"].Value),
+        p["FileSystem"].Value is string { Length: > 0 } fs ? fs : null,
+        p["FileSystemLabel"].Value is string { Length: > 0 } label ? label : null,
+        (uint)p["AllocationUnitSize"].Value,
+        (ulong)p["Size"].Value,
+        (ulong)p["SizeRemaining"].Value,
+        (StorageHealthStatus)(ushort)p["HealthStatus"].Value);
 }

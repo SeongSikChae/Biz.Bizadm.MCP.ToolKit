@@ -395,6 +395,175 @@ public sealed class StorageToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(null, null)]
+    [DataRow(" ", "")]
+    [DataRow("a", "b")]
+    public void InitializeDisk_NotExactlyOneInput_Throws(string? friendlyName, string? uniqueId)
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.InitializeDisk(friendlyName, uniqueId, confirm: true));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void InitializeDisk_NotConfirmed_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.InitializeDisk(friendlyName: Guid.NewGuid().ToString()));
+        StringAssert.Contains(ex.Message, "confirm");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void InitializeDisk_RawPartitionStyle_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.InitializeDisk(
+            friendlyName: Guid.NewGuid().ToString(), partitionStyle: DiskPartitionStyle.Raw, confirm: true));
+        StringAssert.Contains(ex.Message, "partitionStyle");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void InitializeDisk_NotFound_Throws()
+    {
+        string name = Guid.NewGuid().ToString();
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.InitializeDisk(friendlyName: name, confirm: true));
+        StringAssert.Contains(ex.Message, "Virtual disk not found");
+        Assert.ThrowsExactly<McpException>(() => StorageTools.InitializeDisk(uniqueId: name, confirm: true));
+    }
+
+    [TestMethod]
+    [OSCondition(ConditionMode.Exclude, OperatingSystems.Windows)]
+    public void InitializeDisk_NonWindows_Throws()
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.InitializeDisk(friendlyName: "Source", confirm: true));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(null, null)]
+    [DataRow(" ", "")]
+    [DataRow("a", "b")]
+    public void CreatePartition_NotExactlyOneInput_Throws(string? friendlyName, string? uniqueId)
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.CreatePartition(friendlyName, uniqueId, useMaximumSize: true));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CreatePartition_NotExactlyOneSize_Throws(bool both)
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreatePartition(
+            friendlyName: Guid.NewGuid().ToString(), size: both ? 1UL << 30 : null, useMaximumSize: both));
+        StringAssert.Contains(ex.Message, "size or useMaximumSize");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow("AB")]
+    [DataRow("1")]
+    [DataRow("")]
+    public void CreatePartition_InvalidDriveLetter_Throws(string driveLetter)
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreatePartition(
+            friendlyName: Guid.NewGuid().ToString(), useMaximumSize: true, driveLetter: driveLetter));
+        StringAssert.Contains(ex.Message, "single letter");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreatePartition_DriveLetterWithoutAssign_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreatePartition(
+            friendlyName: Guid.NewGuid().ToString(), useMaximumSize: true, driveLetter: "X", assignDriveLetter: false));
+        StringAssert.Contains(ex.Message, "assignDriveLetter");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreatePartition_GptAndMbrType_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.CreatePartition(
+            friendlyName: Guid.NewGuid().ToString(), useMaximumSize: true,
+            gptType: PartitionGptType.BasicData, mbrType: PartitionMbrType.IFS));
+        StringAssert.Contains(ex.Message, "gptType or mbrType");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreatePartition_NotFound_Throws()
+    {
+        string name = Guid.NewGuid().ToString();
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.CreatePartition(friendlyName: name, useMaximumSize: true));
+        StringAssert.Contains(ex.Message, "Virtual disk not found");
+        Assert.ThrowsExactly<McpException>(() => StorageTools.CreatePartition(uniqueId: name, size: 1UL << 30));
+    }
+
+    [TestMethod]
+    [OSCondition(ConditionMode.Exclude, OperatingSystems.Windows)]
+    public void CreatePartition_NonWindows_Throws()
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.CreatePartition(friendlyName: "Source", useMaximumSize: true));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    [DataRow(null, null)]
+    [DataRow(" ", "")]
+    [DataRow("a", "b")]
+    public void FormatVolume_NotExactlyOneInput_Throws(string? friendlyName, string? uniqueId)
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.FormatVolume(2, friendlyName, uniqueId, confirm: true));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void FormatVolume_NotConfirmed_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.FormatVolume(2, friendlyName: Guid.NewGuid().ToString()));
+        StringAssert.Contains(ex.Message, "confirm");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void FormatVolume_ZeroPartitionNumber_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.FormatVolume(0, friendlyName: Guid.NewGuid().ToString(), confirm: true));
+        StringAssert.Contains(ex.Message, "partitionNumber");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void FormatVolume_InvalidTimeout_Throws()
+    {
+        McpException ex = Assert.ThrowsExactly<McpException>(
+            () => StorageTools.FormatVolume(2, friendlyName: Guid.NewGuid().ToString(), confirm: true, timeoutSeconds: 0));
+        StringAssert.Contains(ex.Message, "timeoutSeconds");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void FormatVolume_NotFound_Throws()
+    {
+        string name = Guid.NewGuid().ToString();
+        McpException ex = Assert.ThrowsExactly<McpException>(() => StorageTools.FormatVolume(2, friendlyName: name, confirm: true));
+        StringAssert.Contains(ex.Message, "Virtual disk not found");
+        Assert.ThrowsExactly<McpException>(() => StorageTools.FormatVolume(2, uniqueId: name, confirm: true));
+    }
+
+    [TestMethod]
+    [OSCondition(ConditionMode.Exclude, OperatingSystems.Windows)]
+    public void FormatVolume_NonWindows_Throws()
+    {
+        Assert.ThrowsExactly<McpException>(() => StorageTools.FormatVolume(2, friendlyName: "Source", confirm: true));
+    }
+
+    [TestMethod]
     public void WithBizadmToolKit_RegistersStorageTools()
     {
         ServiceCollection services = new();
@@ -409,6 +578,81 @@ public sealed class StorageToolsTests
         CollectionAssert.Contains(names, "resize_virtual_disk");
         CollectionAssert.Contains(names, "set_virtual_disk");
         CollectionAssert.Contains(names, "remove_virtual_disk");
+        CollectionAssert.Contains(names, "initialize_disk");
+        CollectionAssert.Contains(names, "create_partition");
+        CollectionAssert.Contains(names, "format_volume");
+    }
+
+    [TestMethod]
+    [DataRow("initialize_disk", true)]
+    [DataRow("create_partition", false)]
+    [DataRow("format_volume", true)]
+    public void DiskFormatTools_Annotations(string name, bool destructive)
+    {
+        ServiceCollection services = new();
+        services.AddMcpServer().WithBizadmToolKit();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        McpServerTool tool = provider.GetServices<McpServerTool>().Single(t => t.ProtocolTool.Name == name);
+        Assert.AreEqual(destructive, tool.ProtocolTool.Annotations!.DestructiveHint);
+        Assert.AreEqual(false, tool.ProtocolTool.Annotations.ReadOnlyHint);
+        Assert.AreEqual(false, tool.ProtocolTool.Annotations.OpenWorldHint);
+    }
+
+    [TestMethod]
+    public void DiskFormatTools_InputSchema_EnumsAreStringWithoutCancellationToken()
+    {
+        ServiceCollection services = new();
+        services.AddMcpServer().WithBizadmToolKit();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        List<McpServerTool> tools = provider.GetServices<McpServerTool>().ToList();
+        string format = tools.Single(t => t.ProtocolTool.Name == "format_volume").ProtocolTool.InputSchema.GetRawText();
+        StringAssert.Contains(format, "\"ReFS\"");
+        Assert.IsFalse(format.Contains("cancellationToken", StringComparison.OrdinalIgnoreCase));
+        string partition = tools.Single(t => t.ProtocolTool.Name == "create_partition").ProtocolTool.InputSchema.GetRawText();
+        StringAssert.Contains(partition, "\"BasicData\"");
+        StringAssert.Contains(partition, "\"IFS\"");
+        string initialize = tools.Single(t => t.ProtocolTool.Name == "initialize_disk").ProtocolTool.InputSchema.GetRawText();
+        StringAssert.Contains(initialize, "\"GPT\"");
+    }
+
+    [TestMethod]
+    public void CreatePartition_NullFields_SerializeAllRequiredProperties()
+    {
+        ServiceCollection services = new();
+        services.AddMcpServer().WithBizadmToolKit();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        McpServerTool tool = provider.GetServices<McpServerTool>()
+            .Single(t => t.ProtocolTool.Name == "create_partition");
+        JsonElement schema = tool.ProtocolTool.OutputSchema!.Value;
+
+        PartitionInfo partition = new(16, 2, null, [], 16777216, 1593835520, null, null, false, false, false, false);
+        JsonElement json = JsonSerializer.SerializeToElement(partition, McpJsonUtilities.DefaultOptions);
+
+        List<string> required = schema.GetProperty("required").EnumerateArray().Select(r => r.GetString()!).ToList();
+        CollectionAssert.Contains(required, "driveLetter");
+        foreach (string name in required)
+            Assert.IsTrue(json.TryGetProperty(name, out _), name);
+        Assert.AreEqual(JsonValueKind.Null, json.GetProperty("driveLetter").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, json.GetProperty("gptType").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, json.GetProperty("mbrType").ValueKind);
+    }
+
+    [TestMethod]
+    public void FormatVolume_NullFields_SerializeAllRequiredProperties()
+    {
+        ServiceCollection services = new();
+        services.AddMcpServer().WithBizadmToolKit();
+        using ServiceProvider provider = services.BuildServiceProvider();
+        McpServerTool tool = provider.GetServices<McpServerTool>()
+            .Single(t => t.ProtocolTool.Name == "format_volume");
+        JsonElement schema = tool.ProtocolTool.OutputSchema!.Value;
+
+        VolumeInfo volume = new("{id}", null, null, null, 4096, 1593835520, 1593835520, StorageHealthStatus.Healthy);
+        JsonElement json = JsonSerializer.SerializeToElement(volume, McpJsonUtilities.DefaultOptions);
+
+        foreach (JsonElement required in schema.GetProperty("required").EnumerateArray())
+            Assert.IsTrue(json.TryGetProperty(required.GetString()!, out _), required.GetString());
+        Assert.AreEqual(JsonValueKind.Null, json.GetProperty("fileSystem").ValueKind);
     }
 
     [TestMethod]
