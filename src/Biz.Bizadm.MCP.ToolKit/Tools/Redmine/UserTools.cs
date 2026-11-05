@@ -22,9 +22,10 @@ public sealed class UserTools
     /// <summary>일반 API 키로 현재 Redmine 사용자를 조회한다.</summary>
     [McpServerTool(Name = "get_current_user", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = true)]
     [Description("일반 API 키로 현재 Redmine 사용자를 조회한다.")]
-    public Task<string> GetCurrentUser(CancellationToken cancellationToken = default)
+    public async Task<string> GetCurrentUser(CancellationToken cancellationToken = default)
     {
-        return _redmine.GetAsync("users/current.json", cancellationToken);
+        string json = await _redmine.GetAsync("users/current.json", cancellationToken).ConfigureAwait(false);
+        return RedmineJson.RemoveUserApiKey(json);
     }
 
     /// <summary>Redmine 사용자 목록을 조회한다. 관리자 권한이 필요하다. 활성 사용자만 반환한다.</summary>
@@ -41,10 +42,11 @@ public sealed class UserTools
     /// <summary>Redmine 사용자 하나를 조회한다. 관리자가 아니면 활성 사용자가 아니거나, 본인이 아니면서 보이는 멤버십과 활동이 없으면 404이다.</summary>
     [McpServerTool(Name = "get_user", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = true)]
     [Description("Redmine 사용자 하나를 조회한다. 관리자가 아니면 활성 사용자가 아니거나, 본인이 아니면서 보이는 멤버십과 활동이 없으면 404이다.")]
-    public Task<string> GetUser(
+    public async Task<string> GetUser(
         [Description("사용자 ID")] int id,
         CancellationToken cancellationToken = default)
     {
-        return _redmine.GetAsync($"users/{id.ToString(CultureInfo.InvariantCulture)}.json", cancellationToken);
+        string json = await _redmine.GetAsync($"users/{id.ToString(CultureInfo.InvariantCulture)}.json", cancellationToken).ConfigureAwait(false);
+        return RedmineJson.RemoveUserApiKey(json);
     }
 }

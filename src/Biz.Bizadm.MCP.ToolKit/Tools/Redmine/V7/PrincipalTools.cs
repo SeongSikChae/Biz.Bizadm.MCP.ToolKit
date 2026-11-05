@@ -60,8 +60,9 @@ public sealed class PrincipalTools
     /// <summary>API 키 사용자의 계정 정보를 조회한다.</summary>
     [McpServerTool(Name = "get_my_account", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = true)]
     [Description("API 키 사용자의 계정 정보(로그인, 메일, 사용자 정의 필드 등)를 조회한다.")]
-    public Task<string> GetMyAccount(CancellationToken cancellationToken = default)
+    public async Task<string> GetMyAccount(CancellationToken cancellationToken = default)
     {
-        return _redmine.GetAsync("my/account.json", cancellationToken);
+        string json = await _redmine.GetAsync("my/account.json", cancellationToken).ConfigureAwait(false);
+        return RedmineJson.RemoveUserApiKey(json);
     }
 }

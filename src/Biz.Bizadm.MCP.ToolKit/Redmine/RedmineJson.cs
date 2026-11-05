@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using ModelContextProtocol;
 
@@ -7,6 +9,35 @@ namespace Biz.Bizadm.MCP.ToolKit.Redmine;
 /// <summary>Redmine 요청 Body 작성 helper</summary>
 internal static class RedmineJson
 {
+    private static readonly JsonSerializerOptions ResponseJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    /// <summary>응답의 <c>user.api_key</c>를 지운다. 지울 것이 없으면 <paramref name="json"/>을 그대로 반환한다.</summary>
+    public static string RemoveUserApiKey(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return json;
+
+        JsonNode? node;
+        try
+        {
+            node = JsonNode.Parse(json);
+        }
+        catch (JsonException)
+        {
+            return json;
+        }
+
+        if (node is not JsonObject root
+            || root["user"] is not JsonObject user
+            || !user.Remove("api_key"))
+            return json;
+
+        return root.ToJsonString(ResponseJsonOptions);
+    }
+
     public static void Set(JsonObject target, string name, string? value)
     {
         if (!string.IsNullOrWhiteSpace(value))
