@@ -207,35 +207,13 @@ public sealed class IssueTools
         string? notes,
         IReadOnlyList<UploadReference>? uploads)
     {
-        JsonObject issue = new();
-        RedmineJson.SetId(issue, "project_id", projectId);
-        RedmineJson.Set(issue, "subject", subject);
-        RedmineJson.Set(issue, "description", description);
-        RedmineJson.Set(issue, "tracker_id", trackerId);
-        RedmineJson.Set(issue, "status_id", statusId);
-        RedmineJson.Set(issue, "priority_id", priorityId);
-        RedmineJson.Set(issue, "assigned_to_id", assignedToId);
-        RedmineJson.Set(issue, "parent_issue_id", parentIssueId);
-        RedmineJson.Set(issue, "start_date", startDate);
-        RedmineJson.Set(issue, "due_date", dueDate);
-        RedmineJson.Set(issue, "estimated_hours", estimatedHours);
-        RedmineJson.Set(issue, "done_ratio", doneRatio);
-        RedmineJson.Set(issue, "notes", notes);
-        RedmineJson.SetUploads(issue, uploads);
-        return issue;
+        return IssueBody.Build(
+            projectId, subject, description, trackerId, statusId, priorityId, assignedToId,
+            parentIssueId, startDate, dueDate, estimatedHours, doneRatio, notes, uploads);
     }
 
-    private async Task<string> GetParentProjectIdAsync(int parentIssueId, CancellationToken cancellationToken)
+    private Task<string> GetParentProjectIdAsync(int parentIssueId, CancellationToken cancellationToken)
     {
-        string parentJson = await _redmine.GetAsync(
-            $"issues/{parentIssueId.ToString(CultureInfo.InvariantCulture)}.json",
-            cancellationToken).ConfigureAwait(false);
-        JsonNode? projectId = JsonNode.Parse(parentJson)?["issue"]?["project"]?["id"];
-        if (projectId is null)
-        {
-            throw new McpException($"Parent issue {parentIssueId} response did not contain project.id.");
-        }
-
-        return projectId.GetValue<int>().ToString(CultureInfo.InvariantCulture);
+        return IssueBody.GetParentProjectIdAsync(_redmine, parentIssueId, cancellationToken);
     }
 }

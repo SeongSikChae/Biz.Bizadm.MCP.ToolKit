@@ -148,6 +148,28 @@ public sealed class RedmineClient
         return SendWrappedAsync(HttpMethod.Put, path, wrapper, payload, cancellationToken);
     }
 
+    /// <summary><c>{wrapper: payload}</c> Body로 PATCH 요청을 보낸다.</summary>
+    /// <param name="path">API 기준 상대 경로</param>
+    /// <param name="wrapper">Body 최상위 키</param>
+    /// <param name="payload">Body 내용</param>
+    /// <param name="cancellationToken">취소 토큰</param>
+    /// <returns>응답 본문</returns>
+    public Task<string> PatchAsync(string path, string wrapper, JsonObject payload, CancellationToken cancellationToken)
+    {
+        return SendWrappedAsync(HttpMethod.Patch, path, wrapper, payload, cancellationToken);
+    }
+
+    /// <summary>Body 전체를 그대로 POST 요청으로 보낸다.</summary>
+    /// <param name="path">API 기준 상대 경로</param>
+    /// <param name="body">Body 전체</param>
+    /// <param name="cancellationToken">취소 토큰</param>
+    /// <returns>응답 본문</returns>
+    public Task<string> PostBodyAsync(string path, JsonObject body, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return SendAsync(HttpMethod.Post, path, query: null, CreateJsonContent(body), cancellationToken);
+    }
+
     /// <summary>Body 전체를 그대로 PUT 요청으로 보낸다.</summary>
     /// <param name="path">API 기준 상대 경로</param>
     /// <param name="body">Body 전체</param>

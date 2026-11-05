@@ -105,17 +105,6 @@ public sealed class TimeEntryTools
         string? spentOn,
         bool includeHours)
     {
-        JsonObject timeEntry = new();
-        if (includeHours)
-        {
-            RedmineJson.Set(timeEntry, "hours", hours);
-        }
-
-        RedmineJson.Set(timeEntry, "issue_id", issueId);
-        RedmineJson.Set(timeEntry, "project_id", projectId);
-        RedmineJson.Set(timeEntry, "activity_id", activityId);
-        RedmineJson.Set(timeEntry, "comments", comments);
-        RedmineJson.Set(timeEntry, "spent_on", spentOn);
-        return timeEntry;
+        return TimeEntryBody.Build(hours, issueId, projectId, activityId, comments, spentOn, includeHours);
     }
 }
