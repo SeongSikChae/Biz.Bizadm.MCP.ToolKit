@@ -7,7 +7,7 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <Version>1.3.1</Version>
+    <Version>1.4.0</Version>
     <Authors>SeongSikChae</Authors>
     <Description>ASP.NET Core MCP Server에 WithTools로 등록하는 Tool 모음</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
