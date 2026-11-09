@@ -11,7 +11,7 @@ ASP.NET Core MCP Server에 `WithTools`로 등록하는 Tool 모음 클래스 라
 ### 패키지 참조
 
 ```xml
-<PackageReference Include="Biz.Bizadm.MCP.ToolKit" Version="1.1.0" />
+<PackageReference Include="Biz.Bizadm.MCP.ToolKit" Version="1.2.0" />
 ```
 
 ### 개별 Tool 등록
@@ -69,6 +69,47 @@ builder.Services.AddMcpServer()
 | `Version` | `V2_2`(기본), `V7_0` | 대상 서버 버전. `V2_2`는 Tool 27개, `V7_0`은 61개를 등록한다 |
 | `TextFormatting` | `Textile`(기본), `CommonMark` | 서버의 "관리 → 설정 → 일반 → 텍스트 서식"과 같은 값. `get_text_guide`가 이 서식의 문법을 반환한다. `V2_2`에서는 `Textile`만 쓸 수 있다 |
 
+### Jenkins Tool 등록
+
+Jenkins MCP Server 플러그인(`/mcp-server/mcp`)을 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. Jenkins 쪽 Tool 목록은 인스턴스마다 다를 수 있으므로 `jenkins_list_tools`로 해당 인스턴스에서 직접 조회합니다.
+
+```csharp
+using Biz.Bizadm.MCP.ToolKit.Jenkins;
+
+builder.Services.AddMcpServer()
+    .WithHttpTransport()
+    .WithJenkinsTools(o =>
+    {
+        o.Instances.Add(new JenkinsInstance
+        {
+            Name = "prod",
+            Endpoint = "http://jenkins.example:8080/mcp-server/mcp",
+            User = "builder",
+            ApiToken = "<API Token>",
+            Description = "운영 빌드",
+        });
+        o.Instances.Add(new JenkinsInstance
+        {
+            Name = "dev",
+            Endpoint = "http://jenkins-dev.example:8080/mcp-server/mcp",
+            User = "builder",
+            ApiToken = "<API Token>",
+            Description = "개발 빌드",
+        });
+    });
+```
+
+| 옵션(`JenkinsInstance`) | 설명 |
+| --- | --- |
+| `Name` | 인스턴스 이름. Tool의 `instance` 인자 값(대소문자 무시). 비거나 중복이면 `ArgumentException` |
+| `Endpoint` | Jenkins MCP 주소 전체(절대 http/https URI). `user:token@` 같은 사용자 정보를 넣으면 `ArgumentException` |
+| `User`, `ApiToken` | Basic 인증용 Jenkins 사용자와 API Token. API Token으로 인증하면 crumb이 필요 없다 |
+| `Description` | 용도 설명(선택). `jenkins_list_instances`에 노출된다 |
+
+- 인스턴스는 1개 이상 등록해야 하며 기본 인스턴스는 없다. 모든 호출에 `instance`가 필요하다.
+- 전송은 Streamable HTTP만 쓴다(SSE 미지원).
+- API Token 암복호는 소비 서버 책임이다. 등록한 값은 그대로 Authorization 헤더에 쓰인다.
+
 ## 제공 Tool
 
 | 분류 | Tool 클래스 | 등록 방법 | Tool 수 |
@@ -79,6 +120,7 @@ builder.Services.AddMcpServer()
 | Windows 저장소 공간 | `Tools.StorageTools` | `WithTools<StorageTools>()` | 11 |
 | AgentResource 문서 | `Tools.AgentResource.*` 4개 | `WithAgentResourceTools(...)` | 21 |
 | Redmine | `Tools.Redmine.*`, `Tools.Redmine.V7.*` | `WithRedmineTools(...)` | V2_2: 27, V7_0: 61 |
+| Jenkins MCP 중계 | `Tools.Jenkins.JenkinsTools` | `WithJenkinsTools(...)` | 3 |
 
 각 Tool 명세의 표기:
 
@@ -1695,6 +1737,48 @@ Redmine 첨부를 삭제한다. 되돌릴 수 없다. 성공 시 본문이 비�
 | 파라미터 | 타입 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | integer | ✓ |  | 첨부 ID |
+
+### Jenkins MCP 중계 — `Tools.Jenkins.JenkinsTools`
+
+#### `jenkins_list_instances`
+
+등록한 Jenkins 인스턴스의 이름, 용도 설명, MCP Endpoint를 조회한다. User·ApiToken은 포함하지 않는다.
+
+- 힌트: 읽기 전용 · 멱등
+- 반환: 문자열(`[{name, description, endpoint}]`)
+
+#### `jenkins_list_tools`
+
+지정한 Jenkins 인스턴스의 MCP Tool 목록을 조회한다. 결과는 인스턴스별로 캐시되며 `refresh`가 true일 때만 다시 조회한다.
+
+- 힌트: 읽기 전용 · 멱등 · 외부 접근
+- 반환: 문자열(`{instance, tools: [{name, title, description, inputSchema, annotations}]}`)
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+| --- | --- | --- | --- | --- |
+| `instance` | string | ✓ |  | Jenkins 인스턴스 이름. 생략하면 등록 이름을 안내하는 오류 결과 |
+| `refresh` | boolean |  | false | true면 캐시를 무시하고 다시 조회 |
+
+#### `jenkins_call_tool`
+
+지정한 Jenkins 인스턴스의 MCP Tool을 호출하고 Jenkins가 돌려준 결과(content, structuredContent, isError)를 그대로 반환한다.
+
+- 힌트: 쓰기 · 파괴적 · 외부 접근
+- 반환: Jenkins Tool 결과 그대로
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+| --- | --- | --- | --- | --- |
+| `instance` | string | ✓ |  | Jenkins 인스턴스 이름 |
+| `tool` | string | ✓ |  | 호출할 Jenkins MCP Tool 이름(`jenkins_list_tools`로 확인) |
+| `arguments` | object 또는 string |  |  | Tool 인자. JSON 객체 또는 JSON 객체 문자열 |
+
+`instance`, `tool`은 필수지만 생략한 호출에도 안내 메시지를 주려고 입력 스키마의 `required`에는 넣지 않았다.
+
+오류(모두 JSON-RPC 오류가 아닌 `isError: true` 결과로 반환):
+
+- `instance` 누락·미등록, `tool` 누락·공백, `arguments`가 객체가 아니면 Jenkins를 호출하지 않는다. `instance` 문제면 등록된 이름을 안내한다.
+- Jenkins가 보낸 MCP 오류(없는 Tool, 잘못된 인자 등)는 `Jenkins '{instance}' returned error {code}: ...`로 반환한다. 연결은 유지한다.
+- 연결·HTTP 오류는 `Jenkins '{instance}' request failed (HTTP 401): ...`로 반환하고 해당 인스턴스 연결을 버린다. 다음 호출에서 다시 연결한다.
 
 ## 빌드·테스트
 
