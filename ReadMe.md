@@ -11,7 +11,7 @@ ASP.NET Core MCP Server에 `WithTools`로 등록하는 Tool 모음 클래스 라
 ### 패키지 참조
 
 ```xml
-<PackageReference Include="Biz.Bizadm.MCP.ToolKit" Version="1.2.0" />
+<PackageReference Include="Biz.Bizadm.MCP.ToolKit" Version="1.3.1" />
 ```
 
 ### 개별 Tool 등록
@@ -140,7 +140,8 @@ builder.Services.AddMcpServer()
 
 - 인스턴스는 1개 이상 등록해야 하며 기본 인스턴스는 없다. 모든 호출에 `instance`가 필요하다.
 - 전송은 Streamable HTTP만 쓴다(SSE 미지원).
-- 노출되는 GitHub Tool 범위는 PAT 권한으로 정한다. `X-MCP-Toolsets` 등 추가 헤더는 지원하지 않는다.
+- 노출되는 GitHub Tool 범위는 Endpoint 경로로 정한다(예: 기본 `/mcp/`, 전체 `/mcp/x/all`). `X-MCP-Toolsets` 등 추가 헤더는 지원하지 않는다. fine-grained PAT 권한은 Tool 목록을 거르지 않고 호출 시 upstream이 거부한다.
+- GitHub 원격 MCP는 `owner`·`repo` 같은 인자를 `Mcp-Param-*` 헤더로도 요구한다. ToolKit은 연결마다 첫 호출 전에 `tools/list`를 받아 SDK가 이 헤더를 붙이게 하고, upstream이 `-32020`(헤더 불일치)을 돌려주면 목록을 다시 받아 한 번만 재시도한다.
 - Token 암복호는 소비 서버 책임이다.
 
 ## 제공 Tool

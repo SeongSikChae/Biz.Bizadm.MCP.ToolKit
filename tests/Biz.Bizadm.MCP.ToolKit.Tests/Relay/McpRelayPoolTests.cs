@@ -62,6 +62,92 @@ public sealed class McpRelayPoolTests
     }
 
     [TestMethod]
+    public async Task CallTool_NewConnection_ListsToolsOnceBeforeFirstCall()
+    {
+        await using FakeMcpServer fake = new("getJob");
+        await using McpRelayPool pool = Pool((_, ct) => fake.ConnectionAsync(ct), "prod");
+        McpRelayTarget prod = pool.Resolve("prod");
+
+        await pool.CallToolAsync(prod, "getJob", null, TestContext.CancellationToken);
+        Assert.AreEqual(1, fake.ListToolsCount);
+        await pool.CallToolAsync(prod, "getJob", null, TestContext.CancellationToken);
+        Assert.AreEqual(1, fake.ListToolsCount);
+        Assert.AreEqual(2, fake.CallToolCount);
+
+        // 호출 전에 받은 목록으로 풀 캐시도 채워 list_tools가 upstream을 다시 부르지 않는다
+        IReadOnlyList<Tool> tools = await pool.ListToolsAsync(prod, refresh: false, TestContext.CancellationToken);
+        Assert.HasCount(1, tools);
+        Assert.AreEqual(1, fake.ListToolsCount);
+    }
+
+    [TestMethod]
+    public async Task CallTool_AfterReconnect_ListsToolsAgainOnNewConnection()
+    {
+        await using FakeMcpServer fake = new("getJob");
+        int attempts = 0;
+        McpClient? first = null;
+        await using McpRelayPool pool = Pool(async (_, ct) =>
+        {
+            if (++attempts > 1)
+                return await fake.ConnectionAsync(ct);
+            first = await fake.ConnectAsync(ct);
+            return new McpRelayConnection(first, new TrackingOwner());
+        }, "prod");
+        McpRelayTarget prod = pool.Resolve("prod");
+        await pool.ListToolsAsync(prod, refresh: false, TestContext.CancellationToken);
+        Assert.AreEqual(1, fake.ListToolsCount);
+
+        // 첫 연결을 끊어 다음 호출이 전송 오류로 끝나고 재연결되게 한다
+        await first!.DisposeAsync();
+        await Assert.ThrowsExactlyAsync<McpException>(() => pool.CallToolAsync(prod, "getJob", null, TestContext.CancellationToken));
+
+        await pool.CallToolAsync(prod, "getJob", null, TestContext.CancellationToken);
+        Assert.AreEqual(2, attempts);
+        Assert.AreEqual(2, fake.ListToolsCount, "새 연결에서 호출 전에 목록을 다시 받아야 한다");
+    }
+
+    [TestMethod]
+    public async Task CallTool_HeaderMismatchOnce_RelistsAndRetriesOnSameConnection()
+    {
+        await using FakeMcpServer fake = new("getJob") { HeaderMismatchFailures = 1 };
+        await using McpRelayPool pool = Pool((_, ct) => fake.ConnectionAsync(ct), "prod");
+        McpRelayTarget prod = pool.Resolve("prod");
+
+        CallToolResult result = await pool.CallToolAsync(prod, "getJob", null, TestContext.CancellationToken);
+
+        Assert.IsFalse(result.IsError ?? false);
+        Assert.AreEqual(2, fake.CallToolCount);
+        Assert.AreEqual(2, fake.ListToolsCount, "첫 호출 전 1회 + 재시도 전 1회");
+        Assert.AreEqual(1, fake.ConnectCount);
+    }
+
+    [TestMethod]
+    public async Task CallTool_HeaderMismatchTwice_RetriesOnlyOnceAndKeepsConnection()
+    {
+        await using FakeMcpServer fake = new("getJob") { HeaderMismatchFailures = 2 };
+        await using McpRelayPool pool = Pool((_, ct) => fake.ConnectionAsync(ct), "prod");
+        McpRelayTarget prod = pool.Resolve("prod");
+
+        McpException ex = await Assert.ThrowsExactlyAsync<McpException>(() => pool.CallToolAsync(prod, "getJob", null, TestContext.CancellationToken));
+
+        Assert.StartsWith("Jenkins 'prod' returned error -32020", ex.Message);
+        Assert.AreEqual(2, fake.CallToolCount);
+        await pool.CallToolAsync(prod, "getJob", null, TestContext.CancellationToken);
+        Assert.AreEqual(1, fake.ConnectCount);
+    }
+
+    [TestMethod]
+    public async Task CallTool_OtherProtocolError_IsNotRetried()
+    {
+        await using FakeMcpServer fake = new("getJob") { FailCallWithProtocolError = true };
+        await using McpRelayPool pool = Pool((_, ct) => fake.ConnectionAsync(ct), "prod");
+
+        await Assert.ThrowsExactlyAsync<McpException>(() => pool.CallToolAsync(pool.Resolve("prod"), "getJob", null, TestContext.CancellationToken));
+
+        Assert.AreEqual(1, fake.CallToolCount);
+    }
+
+    [TestMethod]
     public async Task ListTools_DifferentInstances_ReturnTheirOwnTools()
     {
         await using FakeMcpServer prodFake = new("getJob", "triggerBuild");

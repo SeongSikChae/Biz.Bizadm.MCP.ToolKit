@@ -52,17 +52,37 @@ internal sealed class McpRelayPool : IAsyncDisposable, IDisposable
         if (!refresh && _tools.TryGetValue(instance.Name, out IReadOnlyList<Tool>? cached))
             return cached;
 
-        IList<McpClientTool> tools = await InvokeAsync(instance, (c, ct) => c.ListToolsAsync(cancellationToken: ct).AsTask(), cancellationToken).ConfigureAwait(false);
+        return await InvokeAsync(instance, (c, ct) => ListOnConnectionAsync(instance, c, ct), prime: false, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>인스턴스의 Tool을 호출하고 upstream 결과를 그대로 반환한다. 연결에서 Tool 목록을 아직 받지 않았으면 먼저 받는다.</summary>
+    public Task<CallToolResult> CallToolAsync(McpRelayTarget instance, string tool, IReadOnlyDictionary<string, object?>? arguments, CancellationToken cancellationToken)
+        => InvokeAsync(instance, (c, ct) => CallWithHeaderRetryAsync(instance, c, tool, arguments, ct), prime: true, cancellationToken);
+
+    private async Task<CallToolResult> CallWithHeaderRetryAsync(McpRelayTarget instance, McpRelayConnection connection, string tool, IReadOnlyDictionary<string, object?>? arguments, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await connection.Client.CallToolAsync(tool, arguments, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (McpProtocolException ex) when (ex.ErrorCode == McpErrorCode.HeaderMismatch)
+        {
+            // Tool 스키마가 바뀌었을 수 있으므로 목록을 다시 받아 한 번만 재시도한다(SEP-2243 권고)
+            await ListOnConnectionAsync(instance, connection, cancellationToken).ConfigureAwait(false);
+            return await connection.Client.CallToolAsync(tool, arguments, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<IReadOnlyList<Tool>> ListOnConnectionAsync(McpRelayTarget instance, McpRelayConnection connection, CancellationToken cancellationToken)
+    {
+        IList<McpClientTool> tools = await connection.Client.ListToolsAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         Tool[] result = [.. tools.Select(t => t.ProtocolTool)];
         _tools[instance.Name] = result;
+        connection.MarkToolsListed();
         return result;
     }
 
-    /// <summary>인스턴스의 Tool을 호출하고 upstream 결과를 그대로 반환한다.</summary>
-    public Task<CallToolResult> CallToolAsync(McpRelayTarget instance, string tool, IReadOnlyDictionary<string, object?>? arguments, CancellationToken cancellationToken)
-        => InvokeAsync(instance, (c, ct) => c.CallToolAsync(tool, arguments, cancellationToken: ct).AsTask(), cancellationToken);
-
-    private async Task<T> InvokeAsync<T>(McpRelayTarget instance, Func<McpClient, CancellationToken, Task<T>> call, CancellationToken cancellationToken)
+    private async Task<T> InvokeAsync<T>(McpRelayTarget instance, Func<McpRelayConnection, CancellationToken, Task<T>> call, bool prime, CancellationToken cancellationToken)
     {
         // 연결은 호출자 취소와 분리해 취소된 Task가 캐시되지 않게 한다
         Lazy<Task<McpRelayConnection>> entry = _connections.GetOrAdd(instance.Name,
@@ -70,7 +90,10 @@ internal sealed class McpRelayPool : IAsyncDisposable, IDisposable
         try
         {
             McpRelayConnection connection = await entry.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await call(connection.Client, cancellationToken).ConfigureAwait(false);
+            // SDK는 같은 client가 tools/list로 받은 스키마로만 Mcp-Param-* 헤더를 붙이므로 연결마다 목록을 먼저 받는다
+            if (prime && !connection.ToolsListed)
+                await ListOnConnectionAsync(instance, connection, cancellationToken).ConfigureAwait(false);
+            return await call(connection, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

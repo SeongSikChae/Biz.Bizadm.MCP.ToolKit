@@ -94,6 +94,9 @@ internal sealed class FakeMcpServer : IAsyncDisposable
     /// <summary>true면 CallTool에서 JSON-RPC 오류를 보낸다.</summary>
     public bool FailCallWithProtocolError { get; set; }
 
+    /// <summary>앞에서부터 이 횟수만큼 CallTool을 HeaderMismatch(-32020)로 실패시킨다.</summary>
+    public int HeaderMismatchFailures;
+
     public async Task<McpClient> ConnectAsync(CancellationToken cancellationToken = default)
     {
         ConnectCount++;
@@ -123,6 +126,9 @@ internal sealed class FakeMcpServer : IAsyncDisposable
                     LastArguments = request.Params.Arguments;
                     if (FailCallWithProtocolError)
                         throw new McpProtocolException("upstream failure", McpErrorCode.InvalidParams);
+                    if (Interlocked.Decrement(ref HeaderMismatchFailures) >= 0)
+                        throw new McpProtocolException("header mismatch: missing Mcp-Param-repo header", McpErrorCode.HeaderMismatch);
+                    Interlocked.Exchange(ref HeaderMismatchFailures, 0);
                     return ValueTask.FromResult(new CallToolResult
                     {
                         Content = [new TextContentBlock { Text = $"called {request.Params.Name}" }],
