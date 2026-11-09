@@ -22,6 +22,8 @@ internal sealed class GitHubRecordingHandler : HttpMessageHandler
         cancellationToken.ThrowIfCancellationRequested();
         string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
         Dictionary<string, string> headers = request.Headers.ToDictionary(h => h.Key, h => string.Join(", ", h.Value), StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, IEnumerable<string>> h in request.Content?.Headers ?? Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>())
+            headers[h.Key] = string.Join(", ", h.Value);
         Requests.Add((request.Method, request.RequestUri!, body, headers));
         return _responses.Count > 0 ? _responses.Dequeue()() : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
     }

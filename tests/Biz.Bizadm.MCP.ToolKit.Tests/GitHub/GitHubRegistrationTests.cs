@@ -37,9 +37,33 @@ public sealed class GitHubRegistrationTests
 
         CollectionAssert.AreEqual(new[]
         {
-            "github_call_tool", "github_create_annotated_tag", "github_create_lightweight_tag", "github_delete_ref",
-            "github_list_instances", "github_list_tools", "github_update_ref",
+            "github_call_tool", "github_create_annotated_tag", "github_create_lightweight_tag", "github_create_release",
+            "github_delete_ref", "github_delete_release", "github_delete_release_asset",
+            "github_list_instances", "github_list_tools", "github_update_ref", "github_update_release", "github_upload_release_asset",
         }, names);
+    }
+
+    [TestMethod]
+    public void WithGitHubTools_ReleaseToolAnnotationsAndSchemaMatchDesign()
+    {
+        using ServiceProvider provider = CreateServices(o => o.Instances.Add(Instance())).BuildServiceProvider();
+        Dictionary<string, McpServerTool> tools = provider.GetServices<McpServerTool>().ToDictionary(t => t.ProtocolTool.Name);
+
+        Assert.IsFalse(tools["github_create_release"].ProtocolTool.Annotations!.DestructiveHint);
+        Assert.IsFalse(tools["github_upload_release_asset"].ProtocolTool.Annotations!.DestructiveHint);
+        Assert.IsFalse(tools["github_upload_release_asset"].ProtocolTool.Annotations!.IdempotentHint);
+        System.Text.Json.JsonElement upload = tools["github_upload_release_asset"].ProtocolTool.InputSchema.GetProperty("properties");
+        foreach (string p in new[] { "releaseId", "tag", "name", "contentBase64", "contentType", "label" })
+            Assert.IsTrue(upload.TryGetProperty(p, out _), p);
+        foreach (string name in new[] { "github_update_release", "github_delete_release", "github_delete_release_asset" })
+        {
+            Assert.IsTrue(tools[name].ProtocolTool.Annotations!.DestructiveHint, name);
+            Assert.IsTrue(tools[name].ProtocolTool.Annotations!.IdempotentHint, name);
+        }
+        System.Text.Json.JsonElement props = tools["github_update_release"].ProtocolTool.InputSchema.GetProperty("properties");
+        foreach (string p in new[] { "instance", "owner", "repo", "releaseId", "tag", "tagName", "targetCommitish", "name", "body", "draft", "prerelease" })
+            Assert.IsTrue(props.TryGetProperty(p, out _), p);
+        Assert.IsTrue(tools["github_delete_release_asset"].ProtocolTool.InputSchema.GetProperty("properties").TryGetProperty("assetId", out _));
     }
 
     [TestMethod]

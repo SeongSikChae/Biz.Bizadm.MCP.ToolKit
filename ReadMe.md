@@ -112,7 +112,7 @@ builder.Services.AddMcpServer()
 
 ### GitHub Tool 등록
 
-GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다. GitHub MCP Server가 노출하지 않는 태그·ref 쓰기는 GitHub REST API를 직접 부르는 Tool 4개로 함께 등록됩니다.
+GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다. GitHub MCP Server가 노출하지 않는 태그·ref 쓰기와 릴리스 쓰기는 GitHub REST API를 직접 부르는 Tool(태그·ref 4개, 릴리스 5개)로 함께 등록됩니다.
 
 ```csharp
 using Biz.Bizadm.MCP.ToolKit.GitHub;
@@ -160,6 +160,7 @@ builder.Services.AddMcpServer()
 | Jenkins MCP 중계 | `Tools.Jenkins.JenkinsTools` | `WithJenkinsTools(...)` | 3 |
 | GitHub MCP 중계 | `Tools.GitHub.GitHubTools` | `WithGitHubTools(...)` | 3 |
 | GitHub 태그·ref (REST) | `Tools.GitHub.GitHubRefTools` | `WithGitHubTools(...)` | 4 |
+| GitHub 릴리스 (REST) | `Tools.GitHub.GitHubReleaseTools` | `WithGitHubTools(...)` | 5 |
 
 각 Tool 명세의 표기:
 
@@ -1841,6 +1842,23 @@ GitHub MCP Server가 노출하지 않는 태그·ref 쓰기를 `ApiEndpoint`의 
 - `ref`는 `tags/v1.0.0`, `heads/main` 형식이며 앞의 `refs/`는 있어도 된다. 태그 삭제도 `github_delete_ref`(`tags/{tag}`)로 한다. 주석 태그의 태그 객체는 삭제 API가 없어 ref만 지운다.
 - `taggerName`·`taggerEmail`을 생략하면 GitHub가 토큰 사용자로 채운다.
 - 오류(모두 `isError: true` 결과): 입력 누락·미등록 인스턴스는 요청하지 않는다. GitHub 오류는 `GitHub '{instance}' {METHOD} {path} failed (HTTP {code}): {message}`, 전송 오류는 `... failed: {message}`. 주석 태그에서 ref 생성만 실패하면 만든 태그 객체 sha를 덧붙인다. Token은 넣지 않으며 재시도하지 않는다.
+
+### GitHub 릴리스 (REST) — `Tools.GitHub.GitHubReleaseTools`
+
+GitHub MCP Server가 노출하지 않는 릴리스 쓰기를 GitHub REST API로 직접 처리한다. 모두 `instance`, `owner`, `repo`가 필수이고 Contents 쓰기 권한이 필요하다. 릴리스는 `releaseId`(정수) 또는 `tag` 중 정확히 하나로 지정한다. `tag`로는 초안(draft) 릴리스를 찾지 못하므로 초안은 `releaseId`로 지정한다.
+
+| Tool | 추가 파라미터 | REST | 힌트 | 반환 |
+| --- | --- | --- | --- | --- |
+| `github_create_release` | `tagName`(필수), `targetCommitish`, `name`, `body`, `draft`, `prerelease`, `generateReleaseNotes` | `POST releases` | 쓰기 · 외부 접근 | GitHub 릴리스 응답 그대로 |
+| `github_update_release` | 릴리스 지정, `tagName`, `targetCommitish`, `name`, `body`, `draft`, `prerelease`(준 값만, 하나 이상) | `PATCH releases/{id}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | GitHub 릴리스 응답 그대로 |
+| `github_delete_release` | 릴리스 지정 | `DELETE releases/{id}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{"deleted":{"releaseId":N}}` |
+| `github_upload_release_asset` | 릴리스 지정, `name`(필수), `contentBase64`(필수), `contentType`(기본 `application/octet-stream`), `label` | 릴리스 `upload_url`로 `POST ?name=&label=` | 쓰기 · 외부 접근 | GitHub asset 응답 그대로 |
+| `github_delete_release_asset` | `assetId`(정수, 필수) | `DELETE releases/assets/{id}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{"deleted":{"assetId":N}}` |
+
+- `tagName`의 태그가 없으면 GitHub가 `targetCommitish` 기준으로 만든다(초안은 공개할 때). 릴리스를 지워도 태그는 남으며 `github_delete_ref`로 지운다.
+- asset 내용은 base64로 주며 디코딩 후 10 MiB(10,485,760 바이트)까지다. MCP 요청은 약 1.33배가 되므로 서버·프록시의 요청 본문 한도도 확인한다.
+- 업로드 주소는 릴리스 응답의 `upload_url`을 쓴다. Token을 실어 보내므로 scheme·host·port가 `ApiEndpoint`와 같아야 하며(github.com은 `uploads.github.com` 허용), 아니면 요청 전 오류다.
+- 오류 형식·Token 비노출·재시도 없음은 태그·ref Tool과 같다.
 
 ## 빌드·테스트
 

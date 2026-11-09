@@ -125,6 +125,55 @@ public sealed class GitHubRestClientTests
     }
 
     [TestMethod]
+    public void ResolveUploadUri_UsesTemplateAndChecksHost()
+    {
+        GitHubInstance github = Options().Instances[0];
+        GitHubInstance enterprise = Options().Instances[1];
+
+        Assert.AreEqual("https://uploads.github.com/repos/o/r/releases/1/assets?name=a%20b.zip&label=L%20x",
+            GitHubRestClient.ResolveUploadUri(github, "https://uploads.github.com/repos/o/r/releases/1/assets{?name,label}", "a b.zip", "L x").AbsoluteUri);
+        Assert.AreEqual("https://api.github.com/repos/o/r/releases/1/assets?name=a",
+            GitHubRestClient.ResolveUploadUri(github, "https://api.github.com/repos/o/r/releases/1/assets{?name,label}", "a", null).AbsoluteUri);
+        Assert.AreEqual("https://ghe.example/api/uploads/repos/o/r/releases/1/assets?name=a",
+            GitHubRestClient.ResolveUploadUri(enterprise, "https://ghe.example/api/uploads/repos/o/r/releases/1/assets{?name,label}", "a", "").AbsoluteUri);
+
+        foreach ((GitHubInstance instance, string? template) in new (GitHubInstance, string?)[]
+        {
+            (github, "https://evil.example/repos/o/r/releases/1/assets{?name,label}"),
+            (github, "http://uploads.github.com/repos/o/r/releases/1/assets"),
+            (github, "https://uploads.github.com:8443/repos/o/r/releases/1/assets"),
+            (enterprise, "https://uploads.github.com/repos/o/r/releases/1/assets"),
+        })
+        {
+            McpException ex = Assert.ThrowsExactly<McpException>(() => GitHubRestClient.ResolveUploadUri(instance, template, "a", null), template);
+            Assert.Contains("does not match ApiEndpoint", ex.Message);
+            Assert.DoesNotContain(Token, ex.Message);
+        }
+        foreach (string? template in new[] { null, "", "/repos/o/r/releases/1/assets", "ftp://uploads.github.com/x" })
+            Assert.AreEqual($"GitHub 'public' release has no valid upload_url.",
+                Assert.ThrowsExactly<McpException>(() => GitHubRestClient.ResolveUploadUri(github, template, "a", null)).Message);
+    }
+
+    [TestMethod]
+    public async Task Send_AbsoluteUriWithBinaryContent_UsesGivenPathInErrors()
+    {
+        GitHubRecordingHandler handler = new();
+        handler.Enqueue(HttpStatusCode.Created, """{"id":7}""");
+        handler.Enqueue(HttpStatusCode.UnprocessableEntity, """{"message":"Validation Failed"}""");
+        using GitHubRestClient client = new(Options(), handler);
+        GitHubInstance target = client.Resolve("public");
+        Uri uri = new("https://uploads.github.com/repos/o/r/releases/1/assets?name=a");
+
+        string? ok = await client.SendAsync(target, HttpMethod.Post, uri, uri.AbsolutePath, new ByteArrayContent([1, 2, 3]), TestContext.CancellationToken);
+        McpException ex = await Assert.ThrowsExactlyAsync<McpException>(() => client.SendAsync(target, HttpMethod.Post, uri, uri.AbsolutePath, new ByteArrayContent([1]), TestContext.CancellationToken));
+
+        Assert.AreEqual("""{"id":7}""", ok);
+        Assert.AreEqual(uri, handler.Requests[0].Uri);
+        Assert.AreEqual($"Bearer {Token}", handler.Requests[0].Headers["Authorization"]);
+        Assert.AreEqual("GitHub 'public' POST /repos/o/r/releases/1/assets failed (HTTP 422): Validation Failed", ex.Message);
+    }
+
+    [TestMethod]
     public void PathHelpers_RejectDotAndEmptySegments()
     {
         // 결합 시 dot-segment가 정리되어 ref 범위 밖(예: DELETE repos/other/repo)으로 나가는 것을 막는다

@@ -44,15 +44,24 @@ internal sealed class GitHubRestClient : IDisposable
     /// <param name="path"><see cref="GitHubInstance.ApiEndpoint"/> 기준 상대 경로(예: <c>repos/o/r/git/refs</c>)</param>
     /// <param name="body">JSON 본문. 없으면 null</param>
     /// <param name="cancellationToken">호출자 취소. 취소는 감싸지 않고 그대로 전파한다.</param>
-    public async Task<string?> SendAsync(GitHubInstance instance, HttpMethod method, string path, JsonObject? body, CancellationToken cancellationToken)
+    public Task<string?> SendAsync(GitHubInstance instance, HttpMethod method, string path, JsonObject? body, CancellationToken cancellationToken)
+        => SendAsync(instance, method, new Uri(new Uri(instance.ApiEndpoint), path), path,
+            body is null ? null : new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"), cancellationToken);
+
+    /// <summary>절대 URI로 요청을 보내고 응답 본문을 반환한다. 본문이 없으면(204 등) null이다.</summary>
+    /// <param name="instance">호출할 인스턴스(<see cref="Resolve"/> 결과)</param>
+    /// <param name="method">HTTP 메서드</param>
+    /// <param name="uri">요청 URI. 업로드처럼 <see cref="GitHubInstance.ApiEndpoint"/> 밖이면 호출자가 호스트를 검사해야 한다(<see cref="ResolveUploadUri"/>).</param>
+    /// <param name="path">오류 메시지에 쓰는 경로</param>
+    /// <param name="content">요청 본문. 없으면 null. 요청과 함께 dispose된다.</param>
+    /// <param name="cancellationToken">호출자 취소. 취소는 감싸지 않고 그대로 전파한다.</param>
+    public async Task<string?> SendAsync(GitHubInstance instance, HttpMethod method, Uri uri, string path, HttpContent? content, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = new(method, new Uri(new Uri(instance.ApiEndpoint), path));
+        using HttpRequestMessage request = new(method, uri) { Content = content };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", instance.Token);
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
         request.Headers.UserAgent.ParseAdd(UserAgent);
-        if (body is not null)
-            request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
 
         HttpResponseMessage response;
         try
@@ -111,6 +120,29 @@ internal sealed class GitHubRestClient : IDisposable
 
     /// <summary>URL 경로용 ref. 세그먼트마다 인코딩하고 <c>/</c>는 구분자로 둔다.</summary>
     internal static string RefPath(string reference) => string.Join('/', NormalizeRef(reference).Split('/').Select(s => Segment(s, "ref")));
+
+    /// <summary>경로 세그먼트 하나(예: 릴리스 tag)를 인코딩한다. 빈 값·<c>.</c>·<c>..</c>는 거부한다.</summary>
+    internal static string PathSegment(string value, string name) => Segment(value, name);
+
+    /// <summary>릴리스 <c>upload_url</c> 템플릿에서 업로드 URI를 만든다.</summary>
+    /// <remarks>Token을 실어 보내므로 scheme·port가 <see cref="GitHubInstance.ApiEndpoint"/>와 같고 host도 같아야 한다. 예외는 <c>api.github.com</c> → <c>uploads.github.com</c> 하나다.</remarks>
+    internal static Uri ResolveUploadUri(GitHubInstance instance, string? uploadUrlTemplate, string name, string? label)
+    {
+        string template = uploadUrlTemplate ?? string.Empty;
+        int brace = template.IndexOf('{');
+        string raw = brace >= 0 ? template[..brace] : template;
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out Uri? upload) || upload.Scheme is not ("http" or "https"))
+            throw new McpException($"GitHub '{instance.Name}' release has no valid upload_url.");
+
+        Uri api = new(instance.ApiEndpoint);
+        bool sameHost = string.Equals(upload.Host, api.Host, StringComparison.OrdinalIgnoreCase)
+            || (api.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase) && upload.Host.Equals("uploads.github.com", StringComparison.OrdinalIgnoreCase));
+        if (!sameHost || upload.Scheme != api.Scheme || upload.Port != api.Port)
+            throw new McpException($"GitHub '{instance.Name}' upload_url host '{upload.Host}' does not match ApiEndpoint.");
+
+        string query = "?name=" + Uri.EscapeDataString(name) + (string.IsNullOrEmpty(label) ? string.Empty : "&label=" + Uri.EscapeDataString(label));
+        return new Uri(upload.GetLeftPart(UriPartial.Path) + query);
+    }
 
     /// <summary>경로 세그먼트 하나를 인코딩한다. 빈 값·<c>.</c>·<c>..</c>는 주소 결합에서 경로를 벗어나므로 거부한다.</summary>
     private static string Segment(string value, string name)
