@@ -29,12 +29,23 @@ internal static class McpRelayValidation
             throw new ArgumentException($"{label} instance Name is required", ParamName);
         if (!names.Add(trimmed))
             throw new ArgumentException($"Duplicate {label} instance name: {trimmed}", ParamName);
-        if (!Uri.TryCreate(endpoint?.Trim(), UriKind.Absolute, out Uri? uri)
+        return (trimmed, AbsoluteHttpUri(label, trimmed, "Endpoint", endpoint, credentialHint));
+    }
+
+    /// <summary>절대 http/https URI이고 사용자 정보가 없는지 검사하고 정규화한 값을 반환한다.</summary>
+    /// <param name="label">메시지에 쓰는 서비스 이름</param>
+    /// <param name="name">인스턴스 이름(검사를 마친 값)</param>
+    /// <param name="property">메시지에 쓰는 속성 이름(예: <c>Endpoint</c>)</param>
+    /// <param name="value">검사할 주소</param>
+    /// <param name="credentialHint">사용자 정보 대신 쓸 속성 안내</param>
+    public static string AbsoluteHttpUri(string label, string name, string property, string? value, string credentialHint)
+    {
+        if (!Uri.TryCreate(value?.Trim(), UriKind.Absolute, out Uri? uri)
             || uri.Scheme is not ("http" or "https"))
-            throw new ArgumentException($"{label} instance '{trimmed}' Endpoint must be an absolute http or https URI", ParamName);
-        // 사용자 정보가 있으면 list_instances로 자격 증명이 노출된다
+            throw new ArgumentException($"{label} instance '{name}' {property} must be an absolute http or https URI", ParamName);
+        // 사용자 정보가 있으면 결과·메시지로 자격 증명이 노출될 수 있다
         if (!string.IsNullOrEmpty(uri.UserInfo))
-            throw new ArgumentException($"{label} instance '{trimmed}' Endpoint must not contain user info. Use {credentialHint}", ParamName);
-        return (trimmed, uri.AbsoluteUri);
+            throw new ArgumentException($"{label} instance '{name}' {property} must not contain user info. Use {credentialHint}", ParamName);
+        return uri.AbsoluteUri;
     }
 }

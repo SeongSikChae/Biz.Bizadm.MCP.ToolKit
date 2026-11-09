@@ -26,8 +26,8 @@ public sealed class GitHubToolsTests
 
     private static GitHubInstance[] Instances() =>
     [
-        new GitHubInstance { Name = "public", Endpoint = "https://api.githubcopilot.com/mcp/", Token = Token, Description = "github.com" },
-        new GitHubInstance { Name = "enterprise", Endpoint = "https://ghe.example/mcp/", Token = Token },
+        new GitHubInstance { Name = "public", Endpoint = "https://api.githubcopilot.com/mcp/", ApiEndpoint = "https://api.github.com/", Token = Token, Description = "github.com" },
+        new GitHubInstance { Name = "enterprise", Endpoint = "https://ghe.example/mcp/", ApiEndpoint = "https://ghe.example/api/v3/", Token = Token },
     ];
 
     private static McpRelayPool Pool(Func<McpRelayTarget, CancellationToken, Task<McpRelayConnection>> connect)

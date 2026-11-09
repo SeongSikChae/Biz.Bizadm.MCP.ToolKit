@@ -3,6 +3,7 @@ using Biz.Bizadm.MCP.ToolKit.Jenkins;
 using Biz.Bizadm.MCP.ToolKit.Relay;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace Biz.Bizadm.MCP.ToolKit.Tests.GitHub;
@@ -16,6 +17,7 @@ public sealed class GitHubRegistrationTests
     {
         Name = name,
         Endpoint = "https://api.githubcopilot.com/mcp/",
+        ApiEndpoint = "https://api.github.com/",
         Token = Token,
         Description = "github.com 조직",
     };
@@ -28,12 +30,38 @@ public sealed class GitHubRegistrationTests
     }
 
     [TestMethod]
-    public void WithGitHubTools_RegistersThreeGatewayTools()
+    public void WithGitHubTools_RegistersGatewayAndRefTools()
     {
         using ServiceProvider provider = CreateServices(o => o.Instances.Add(Instance())).BuildServiceProvider();
-        string[] names = [.. provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order()];
+        string[] names = [.. provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order(StringComparer.Ordinal)];
 
-        CollectionAssert.AreEqual(new[] { "github_call_tool", "github_list_instances", "github_list_tools" }, names);
+        CollectionAssert.AreEqual(new[]
+        {
+            "github_call_tool", "github_create_annotated_tag", "github_create_lightweight_tag", "github_delete_ref",
+            "github_list_instances", "github_list_tools", "github_update_ref",
+        }, names);
+    }
+
+    [TestMethod]
+    public void WithGitHubTools_RefToolAnnotationsMatchDesign()
+    {
+        using ServiceProvider provider = CreateServices(o => o.Instances.Add(Instance())).BuildServiceProvider();
+        Dictionary<string, ToolAnnotations> a = provider.GetServices<McpServerTool>().ToDictionary(t => t.ProtocolTool.Name, t => t.ProtocolTool.Annotations!);
+
+        foreach (string name in new[] { "github_create_lightweight_tag", "github_create_annotated_tag", "github_update_ref", "github_delete_ref" })
+        {
+            Assert.IsFalse(a[name].ReadOnlyHint, name);
+            Assert.IsTrue(a[name].OpenWorldHint, name);
+        }
+        // 메서드 인자 @ref가 입력 스키마에서 ref로 노출되는지
+        McpServerTool update = provider.GetServices<McpServerTool>().Single(t => t.ProtocolTool.Name == "github_update_ref");
+        System.Text.Json.JsonElement props = update.ProtocolTool.InputSchema.GetProperty("properties");
+        foreach (string p in new[] { "instance", "owner", "repo", "ref", "sha", "force" })
+            Assert.IsTrue(props.TryGetProperty(p, out _), p);
+        Assert.IsFalse(a["github_create_lightweight_tag"].DestructiveHint);
+        Assert.IsFalse(a["github_create_annotated_tag"].DestructiveHint);
+        Assert.IsTrue(a["github_update_ref"].DestructiveHint);
+        Assert.IsTrue(a["github_delete_ref"].DestructiveHint);
     }
 
     [TestMethod]
@@ -53,12 +81,36 @@ public sealed class GitHubRegistrationTests
         yield return [(Action<GitHubOptions>)(o => { })];
         yield return [(Action<GitHubOptions>)(o => o.Instances = null!)];
         yield return [(Action<GitHubOptions>)(o => o.Instances.Add(null!))];
-        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = " ", Endpoint = "https://g/mcp/", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = " ", Endpoint = "https://g/mcp/", ApiEndpoint = "https://api.github.com/", Token = Token }))];
         yield return [(Action<GitHubOptions>)(o => { o.Instances.Add(Instance("public")); o.Instances.Add(Instance("PUBLIC")); })];
-        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "/mcp/", Token = Token }))];
-        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "ftp://g/mcp", Token = Token }))];
-        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = $"https://u:{Token}@g/mcp/", Token = Token }))];
-        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", Token = " " }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "/mcp/", ApiEndpoint = "https://api.github.com/", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "ftp://g/mcp", ApiEndpoint = "https://api.github.com/", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = $"https://u:{Token}@g/mcp/", ApiEndpoint = "https://api.github.com/", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", ApiEndpoint = "https://api.github.com/", Token = " " }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", ApiEndpoint = "/api/v3/", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", ApiEndpoint = "ftp://g/api", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", ApiEndpoint = $"https://u:{Token}@g/api/v3/", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", ApiEndpoint = "https://g/api/v3?x=1", Token = Token }))];
+        yield return [(Action<GitHubOptions>)(o => o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", ApiEndpoint = "https://g/api/v3/#f", Token = Token }))];
+    }
+
+    [TestMethod]
+    public void WithGitHubTools_MissingApiEndpoint_NamesProperty()
+    {
+        ArgumentException ex = Assert.ThrowsExactly<ArgumentException>(() => CreateServices(o =>
+            o.Instances.Add(new GitHubInstance { Name = "a", Endpoint = "https://g/mcp/", Token = Token })));
+        Assert.StartsWith("GitHub instance 'a' ApiEndpoint must be an absolute http or https URI", ex.Message);
+    }
+
+    [TestMethod]
+    public void WithGitHubTools_ApiEndpoint_IsNormalizedWithTrailingSlash()
+    {
+        GitHubInstance instance = Instance("enterprise");
+        instance.ApiEndpoint = " https://ghe.example/api/v3 ";
+        using ServiceProvider provider = CreateServices(o => o.Instances.Add(instance)).BuildServiceProvider();
+
+        Assert.AreEqual("https://ghe.example/api/v3/", provider.GetRequiredService<GitHubOptions>().Instances[0].ApiEndpoint);
     }
 
     [TestMethod]
@@ -94,6 +146,7 @@ public sealed class GitHubRegistrationTests
         Assert.AreEqual("public", stored.Instances[0].Name);
         Assert.AreEqual(Token, stored.Instances[0].Token);
         Assert.AreEqual("https://api.githubcopilot.com/mcp/", stored.Instances[0].Endpoint);
+        Assert.AreEqual("https://api.github.com/", stored.Instances[0].ApiEndpoint);
     }
 
     [TestMethod]

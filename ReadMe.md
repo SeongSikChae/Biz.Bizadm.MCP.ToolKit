@@ -112,7 +112,7 @@ builder.Services.AddMcpServer()
 
 ### GitHub Tool 등록
 
-GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다.
+GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다. GitHub MCP Server가 노출하지 않는 태그·ref 쓰기는 GitHub REST API를 직접 부르는 Tool 4개로 함께 등록됩니다.
 
 ```csharp
 using Biz.Bizadm.MCP.ToolKit.GitHub;
@@ -125,6 +125,7 @@ builder.Services.AddMcpServer()
         {
             Name = "public",
             Endpoint = "https://api.githubcopilot.com/mcp/",
+            ApiEndpoint = "https://api.github.com/",
             Token = "<Personal Access Token>",
             Description = "github.com 조직 저장소",
         });
@@ -135,7 +136,8 @@ builder.Services.AddMcpServer()
 | --- | --- |
 | `Name` | 인스턴스 이름. Tool의 `instance` 인자 값(대소문자 무시). 비거나 중복이면 `ArgumentException` |
 | `Endpoint` | GitHub MCP 주소 전체(절대 http/https URI). `user:token@` 같은 사용자 정보를 넣으면 `ArgumentException` |
-| `Token` | Bearer 인증용 GitHub Personal Access Token. 앞뒤 공백은 지운다 |
+| `ApiEndpoint` | **필수**(1.4.0~). GitHub REST API 기본 주소. github.com은 `https://api.github.com/`, GitHub Enterprise는 `https://{host}/api/v3/`. 끝 `/`는 없으면 붙인다. 태그·ref Tool이 쓴다 |
+| `Token` | Bearer 인증용 GitHub Personal Access Token. 게이트웨이와 태그·ref Tool이 함께 쓴다. 앞뒤 공백은 지운다 |
 | `Description` | 용도 설명(선택). `github_list_instances`에 노출된다 |
 
 - 인스턴스는 1개 이상 등록해야 하며 기본 인스턴스는 없다. 모든 호출에 `instance`가 필요하다.
@@ -143,6 +145,7 @@ builder.Services.AddMcpServer()
 - 노출되는 GitHub Tool 범위는 Endpoint 경로로 정한다(예: 기본 `/mcp/`, 전체 `/mcp/x/all`). `X-MCP-Toolsets` 등 추가 헤더는 지원하지 않는다. fine-grained PAT 권한은 Tool 목록을 거르지 않고 호출 시 upstream이 거부한다.
 - GitHub 원격 MCP는 `owner`·`repo` 같은 인자를 `Mcp-Param-*` 헤더로도 요구한다. ToolKit은 연결마다 첫 호출 전에 `tools/list`를 받아 SDK가 이 헤더를 붙이게 하고, upstream이 `-32020`(헤더 불일치)을 돌려주면 목록을 다시 받아 한 번만 재시도한다.
 - Token 암복호는 소비 서버 책임이다.
+- **호환성(1.4.0)**: `ApiEndpoint`가 필수가 되어, 1.3.x 설정에 `ApiEndpoint`가 없으면 등록 시 `ArgumentException`이다.
 
 ## 제공 Tool
 
@@ -156,6 +159,7 @@ builder.Services.AddMcpServer()
 | Redmine | `Tools.Redmine.*`, `Tools.Redmine.V7.*` | `WithRedmineTools(...)` | V2_2: 27, V7_0: 61 |
 | Jenkins MCP 중계 | `Tools.Jenkins.JenkinsTools` | `WithJenkinsTools(...)` | 3 |
 | GitHub MCP 중계 | `Tools.GitHub.GitHubTools` | `WithGitHubTools(...)` | 3 |
+| GitHub 태그·ref (REST) | `Tools.GitHub.GitHubRefTools` | `WithGitHubTools(...)` | 4 |
 
 각 Tool 명세의 표기:
 
@@ -1822,6 +1826,21 @@ Redmine 첨부를 삭제한다. 되돌릴 수 없다. 성공 시 본문이 비�
 - `github_list_instances`는 Token을 포함하지 않는다.
 - 오류 메시지의 서비스 이름이 `GitHub`이다: `Unknown GitHub instance '{name}'`, `GitHub '{instance}' returned error {code}: ...`, `GitHub '{instance}' request failed (HTTP 401): ...`
 - 원격 GitHub MCP는 Tool이 많아 `github_list_tools` 결과가 클 수 있다.
+
+### GitHub 태그·ref (REST) — `Tools.GitHub.GitHubRefTools`
+
+GitHub MCP Server가 노출하지 않는 태그·ref 쓰기를 `ApiEndpoint`의 GitHub REST API로 직접 처리한다. 모두 `instance`, `owner`, `repo`가 필수이고 Contents 쓰기 권한이 필요하다(권한 검사는 GitHub가 한다).
+
+| Tool | 추가 파라미터 | REST | 힌트 | 반환 |
+| --- | --- | --- | --- | --- |
+| `github_create_lightweight_tag` | `tag`, `sha` | `POST git/refs` | 쓰기 · 외부 접근 | GitHub ref 응답 그대로 |
+| `github_create_annotated_tag` | `tag`, `sha`(커밋), `message`, `taggerName`·`taggerEmail`(선택, 함께) | `POST git/tags` → `POST git/refs` | 쓰기 · 외부 접근 | `{tag, ref}` 두 응답 |
+| `github_update_ref` | `ref`, `sha`, `force`(기본 false) | `PATCH git/refs/{ref}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | GitHub ref 응답 그대로 |
+| `github_delete_ref` | `ref` | `DELETE git/refs/{ref}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{"deleted":"refs/..."}` |
+
+- `ref`는 `tags/v1.0.0`, `heads/main` 형식이며 앞의 `refs/`는 있어도 된다. 태그 삭제도 `github_delete_ref`(`tags/{tag}`)로 한다. 주석 태그의 태그 객체는 삭제 API가 없어 ref만 지운다.
+- `taggerName`·`taggerEmail`을 생략하면 GitHub가 토큰 사용자로 채운다.
+- 오류(모두 `isError: true` 결과): 입력 누락·미등록 인스턴스는 요청하지 않는다. GitHub 오류는 `GitHub '{instance}' {METHOD} {path} failed (HTTP {code}): {message}`, 전송 오류는 `... failed: {message}`. 주석 태그에서 ref 생성만 실패하면 만든 태그 객체 sha를 덧붙인다. Token은 넣지 않으며 재시도하지 않는다.
 
 ## 빌드·테스트
 

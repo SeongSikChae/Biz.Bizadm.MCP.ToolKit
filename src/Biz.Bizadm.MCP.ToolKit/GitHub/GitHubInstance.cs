@@ -9,6 +9,9 @@ public sealed class GitHubInstance
     /// <summary>GitHub MCP 주소 전체(절대 http/https URI, 예: <c>https://api.githubcopilot.com/mcp/</c>)</summary>
     public string Endpoint { get; set; } = string.Empty;
 
+    /// <summary>GitHub REST API 기본 주소(필수, 절대 http/https URI). github.com은 <c>https://api.github.com/</c>, GitHub Enterprise는 <c>https://{host}/api/v3/</c>. 태그·ref Tool이 쓴다.</summary>
+    public string ApiEndpoint { get; set; } = string.Empty;
+
     /// <summary>Bearer 인증에 쓸 GitHub Personal Access Token</summary>
     public string Token { get; set; } = string.Empty;
 
