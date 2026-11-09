@@ -1,4 +1,7 @@
+using System.Text;
+
 using Biz.Bizadm.MCP.ToolKit.Jenkins;
+using Biz.Bizadm.MCP.ToolKit.Relay;
 using Biz.Bizadm.MCP.ToolKit.Tools.Jenkins;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -6,6 +9,8 @@ namespace Microsoft.Extensions.DependencyInjection;
 /// <summary>Jenkins MCP 중계 Tool을 MCP Server에 등록하는 확장 메서드</summary>
 public static class JenkinsMcpServerBuilderExtensions
 {
+    internal const string Label = "Jenkins";
+
     /// <summary>Jenkins MCP 중계 Tool(jenkins_list_instances, jenkins_list_tools, jenkins_call_tool)을 인스턴스 옵션과 함께 등록한다.</summary>
     /// <param name="builder">Tool을 등록할 MCP Server 빌더</param>
     /// <param name="configure">Jenkins 인스턴스 옵션 설정</param>
@@ -22,33 +27,31 @@ public static class JenkinsMcpServerBuilderExtensions
         JenkinsOptions validated = Validate(options);
 
         builder.Services.AddSingleton(validated);
-        builder.Services.AddSingleton(sp => new JenkinsMcpClientPool(sp.GetRequiredService<JenkinsOptions>()));
+        builder.Services.AddKeyedSingleton(JenkinsTools.PoolKey,
+            (sp, _) => new McpRelayPool(Label, sp.GetRequiredService<JenkinsOptions>().Instances.Select(ToTarget)));
         builder.WithTools<JenkinsTools>();
         return builder;
     }
 
+    internal static McpRelayTarget ToTarget(JenkinsInstance instance) => new(
+        instance.Name,
+        instance.Endpoint,
+        instance.Description,
+        new Dictionary<string, string>
+        {
+            ["Authorization"] = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{instance.User}:{instance.ApiToken}")),
+        });
+
     private static JenkinsOptions Validate(JenkinsOptions options)
     {
-        if (options.Instances is null || options.Instances.Count == 0)
-            throw new ArgumentException("At least one Jenkins instance is required", nameof(options));
+        McpRelayValidation.RequireInstances(Label, options.Instances);
 
         HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
         List<JenkinsInstance> copies = [];
-        foreach (JenkinsInstance? instance in options.Instances)
+        foreach (JenkinsInstance? item in options.Instances)
         {
-            if (instance is null)
-                throw new ArgumentException("Jenkins instance must not be null", nameof(options));
-            string name = instance.Name?.Trim() ?? string.Empty;
-            if (name.Length == 0)
-                throw new ArgumentException("Jenkins instance Name is required", nameof(options));
-            if (!names.Add(name))
-                throw new ArgumentException($"Duplicate Jenkins instance name: {name}", nameof(options));
-            if (!Uri.TryCreate(instance.Endpoint?.Trim(), UriKind.Absolute, out Uri? endpoint)
-                || endpoint.Scheme is not ("http" or "https"))
-                throw new ArgumentException($"Jenkins instance '{name}' Endpoint must be an absolute http or https URI", nameof(options));
-            // 사용자 정보가 있으면 jenkins_list_instances로 자격 증명이 노출된다
-            if (!string.IsNullOrEmpty(endpoint.UserInfo))
-                throw new ArgumentException($"Jenkins instance '{name}' Endpoint must not contain user info. Use User and ApiToken", nameof(options));
+            JenkinsInstance instance = McpRelayValidation.NotNull(Label, item);
+            (string name, string endpoint) = McpRelayValidation.NameAndEndpoint(Label, names, instance.Name, instance.Endpoint, "User and ApiToken");
             if (string.IsNullOrWhiteSpace(instance.User))
                 throw new ArgumentException($"Jenkins instance '{name}' User is required", nameof(options));
             if (string.IsNullOrWhiteSpace(instance.ApiToken))
@@ -57,7 +60,7 @@ public static class JenkinsMcpServerBuilderExtensions
             copies.Add(new JenkinsInstance
             {
                 Name = name,
-                Endpoint = endpoint.AbsoluteUri,
+                Endpoint = endpoint,
                 User = instance.User.Trim(),
                 ApiToken = instance.ApiToken,
                 Description = string.IsNullOrWhiteSpace(instance.Description) ? null : instance.Description.Trim(),

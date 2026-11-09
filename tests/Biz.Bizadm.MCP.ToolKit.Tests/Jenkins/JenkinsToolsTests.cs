@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using Biz.Bizadm.MCP.ToolKit.Jenkins;
+using Biz.Bizadm.MCP.ToolKit.Relay;
+using Biz.Bizadm.MCP.ToolKit.Tests.Relay;
 using Biz.Bizadm.MCP.ToolKit.Tools.Jenkins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -29,12 +31,15 @@ public sealed class JenkinsToolsTests
         ],
     };
 
+    private static McpRelayPool Pool(Func<McpRelayTarget, CancellationToken, Task<McpRelayConnection>> connect)
+        => new("Jenkins", Options().Instances.Select(JenkinsMcpServerBuilderExtensions.ToTarget), connect);
+
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
     [TestMethod]
     public void ListInstances_ReturnsNameDescriptionEndpointWithoutCredentials()
     {
-        using JenkinsMcpClientPool pool = new(Options(), (_, _) => throw new AssertFailedException("must not connect"));
+        using McpRelayPool pool = Pool((_, _) => throw new AssertFailedException("must not connect"));
         string json = new JenkinsTools(pool).ListInstances();
 
         JsonArray items = JsonNode.Parse(json)!.AsArray();
@@ -49,8 +54,8 @@ public sealed class JenkinsToolsTests
     [TestMethod]
     public async Task ListTools_ReturnsUpstreamNamesAndSchemas()
     {
-        await using FakeJenkinsServer fake = new("getJob", "triggerBuild");
-        await using JenkinsMcpClientPool pool = new(Options(), (_, ct) => fake.ConnectionAsync(ct));
+        await using FakeMcpServer fake = new("getJob", "triggerBuild");
+        await using McpRelayPool pool = Pool((_, ct) => fake.ConnectionAsync(ct));
 
         string json = await new JenkinsTools(pool).ListTools("prod", cancellationToken: TestContext.CancellationToken);
 
@@ -65,8 +70,8 @@ public sealed class JenkinsToolsTests
     [TestMethod]
     public async Task CallTool_PassesArgumentsAndReturnsUpstreamResult()
     {
-        await using FakeJenkinsServer fake = new("getJob");
-        await using JenkinsMcpClientPool pool = new(Options(), (_, ct) => fake.ConnectionAsync(ct));
+        await using FakeMcpServer fake = new("getJob");
+        await using McpRelayPool pool = Pool((_, ct) => fake.ConnectionAsync(ct));
         JenkinsTools tools = new(pool);
 
         CallToolResult result = await tools.CallTool("prod", " getJob ", Json("""{"jobName":"build-main"}"""), TestContext.CancellationToken);
@@ -83,8 +88,8 @@ public sealed class JenkinsToolsTests
     [TestMethod]
     public async Task CallTool_ArgumentsAsJsonString_ArePassedAsObject()
     {
-        await using FakeJenkinsServer fake = new("getJob");
-        await using JenkinsMcpClientPool pool = new(Options(), (_, ct) => fake.ConnectionAsync(ct));
+        await using FakeMcpServer fake = new("getJob");
+        await using McpRelayPool pool = Pool((_, ct) => fake.ConnectionAsync(ct));
 
         await new JenkinsTools(pool).CallTool("prod", "getJob", Json("""{"text":"{\"jobName\":\"job\"}"}""").GetProperty("text"), TestContext.CancellationToken);
 
@@ -94,15 +99,15 @@ public sealed class JenkinsToolsTests
     [TestMethod]
     public void ToArguments_EmptyValues_ReturnNull()
     {
-        Assert.IsNull(JenkinsTools.ToArguments(null));
-        Assert.IsNull(JenkinsTools.ToArguments(Json("null")));
-        Assert.IsNull(JenkinsTools.ToArguments(Json("\"  \"")));
+        Assert.IsNull(McpRelayTools.ToArguments(null));
+        Assert.IsNull(McpRelayTools.ToArguments(Json("null")));
+        Assert.IsNull(McpRelayTools.ToArguments(Json("\"  \"")));
     }
 
     [TestMethod]
     public void CallTool_InvalidInput_ThrowsWithoutCallingUpstream()
     {
-        using JenkinsMcpClientPool pool = new(Options(), (_, _) => throw new AssertFailedException("must not connect"));
+        using McpRelayPool pool = Pool((_, _) => throw new AssertFailedException("must not connect"));
         JenkinsTools tools = new(pool);
 
         Assert.ThrowsExactly<McpException>(() => tools.CallTool("qa", "getJob"));
@@ -117,16 +122,18 @@ public sealed class JenkinsToolsTests
     [TestMethod]
     public async Task ThroughMcpServer_CallToolPassesResultAndTransportErrorKeepsMessage()
     {
-        await using FakeJenkinsServer fake = new("getJob");
+        await using FakeMcpServer fake = new("getJob");
         ServiceCollection services = new();
         services.AddMcpServer().WithJenkinsTools(o =>
         {
             foreach (JenkinsInstance instance in Options().Instances)
                 o.Instances.Add(instance);
         });
-        services.AddSingleton(sp => new JenkinsMcpClientPool(sp.GetRequiredService<JenkinsOptions>(), (i, ct) => i.Name == "prod"
-            ? fake.ConnectionAsync(ct)
-            : throw new HttpRequestException("Forbidden", null, HttpStatusCode.Forbidden)));
+        services.AddKeyedSingleton(JenkinsTools.PoolKey, (sp, _) => new McpRelayPool("Jenkins",
+            sp.GetRequiredService<JenkinsOptions>().Instances.Select(JenkinsMcpServerBuilderExtensions.ToTarget),
+            (i, ct) => i.Name == "prod"
+                ? fake.ConnectionAsync(ct)
+                : throw new HttpRequestException("Forbidden", null, HttpStatusCode.Forbidden)));
         await using ServiceProvider provider = services.BuildServiceProvider();
 
         (ChannelTransport clientSide, ChannelTransport serverSide) = ChannelTransport.CreatePair();

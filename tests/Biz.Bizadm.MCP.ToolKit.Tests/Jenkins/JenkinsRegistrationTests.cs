@@ -69,6 +69,17 @@ public sealed class JenkinsRegistrationTests
     }
 
     [TestMethod]
+    public void WithJenkinsTools_InvalidItemsBeforeNull_ReportFirstItemError()
+    {
+        ArgumentException ex = Assert.ThrowsExactly<ArgumentException>(() => CreateServices(o =>
+        {
+            o.Instances.Add(new JenkinsInstance { Name = " ", Endpoint = "http://j/mcp-server/mcp", User = "u", ApiToken = Token });
+            o.Instances.Add(null!);
+        }));
+        Assert.StartsWith("Jenkins instance Name is required", ex.Message);
+    }
+
+    [TestMethod]
     public void WithJenkinsTools_NullArguments_Throw()
     {
         Assert.ThrowsExactly<ArgumentNullException>(() => new ServiceCollection().AddMcpServer().WithJenkinsTools(null!));

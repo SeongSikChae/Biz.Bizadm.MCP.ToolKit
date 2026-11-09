@@ -1,14 +1,14 @@
 using System.Text.Json;
 using System.Threading.Channels;
 
-using Biz.Bizadm.MCP.ToolKit.Jenkins;
+using Biz.Bizadm.MCP.ToolKit.Relay;
 
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
-namespace Biz.Bizadm.MCP.ToolKit.Tests.Jenkins;
+namespace Biz.Bizadm.MCP.ToolKit.Tests.Relay;
 
 /// <summary>메모리 안에서 서로 메시지를 주고받는 ITransport 한 쪽</summary>
 internal sealed class ChannelTransport(Channel<JsonRpcMessage> incoming, ChannelWriter<JsonRpcMessage> writer) : ITransport
@@ -68,13 +68,13 @@ internal sealed class TrackingOwner(bool hang = false) : IAsyncDisposable
     }
 }
 
-/// <summary>가짜 Jenkins MCP Server. 호출 횟수와 받은 인자를 기록한다.</summary>
-internal sealed class FakeJenkinsServer : IAsyncDisposable
+/// <summary>가짜 upstream MCP Server. 호출 횟수와 받은 인자를 기록한다.</summary>
+internal sealed class FakeMcpServer : IAsyncDisposable
 {
     private readonly CancellationTokenSource _stop = new();
     private readonly List<McpServer> _servers = [];
 
-    public FakeJenkinsServer(params string[] toolNames)
+    public FakeMcpServer(params string[] toolNames)
     {
         ToolNames = toolNames;
     }
@@ -100,7 +100,7 @@ internal sealed class FakeJenkinsServer : IAsyncDisposable
         (ChannelTransport client, ChannelTransport server) = ChannelTransport.CreatePair();
         McpServerOptions options = new()
         {
-            ServerInfo = new Implementation { Name = "fake-jenkins", Version = "1.0" },
+            ServerInfo = new Implementation { Name = "fake-mcp", Version = "1.0" },
             Handlers = new McpServerHandlers
             {
                 ListToolsHandler = (_, _) =>
@@ -138,7 +138,7 @@ internal sealed class FakeJenkinsServer : IAsyncDisposable
     }
 
     /// <summary>pool 생성기용 연결. 소유 자원으로 <see cref="TrackingOwner"/>를 붙인다.</summary>
-    public async Task<JenkinsConnection> ConnectionAsync(CancellationToken cancellationToken = default, TrackingOwner? owner = null)
+    public async Task<McpRelayConnection> ConnectionAsync(CancellationToken cancellationToken = default, TrackingOwner? owner = null)
         => new(await ConnectAsync(cancellationToken), owner ?? new TrackingOwner());
 
     public async ValueTask DisposeAsync()

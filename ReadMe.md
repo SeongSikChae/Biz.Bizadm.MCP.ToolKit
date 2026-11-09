@@ -110,6 +110,39 @@ builder.Services.AddMcpServer()
 - 전송은 Streamable HTTP만 쓴다(SSE 미지원).
 - API Token 암복호는 소비 서버 책임이다. 등록한 값은 그대로 Authorization 헤더에 쓰인다.
 
+### GitHub Tool 등록
+
+GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다.
+
+```csharp
+using Biz.Bizadm.MCP.ToolKit.GitHub;
+
+builder.Services.AddMcpServer()
+    .WithHttpTransport()
+    .WithGitHubTools(o =>
+    {
+        o.Instances.Add(new GitHubInstance
+        {
+            Name = "public",
+            Endpoint = "https://api.githubcopilot.com/mcp/",
+            Token = "<Personal Access Token>",
+            Description = "github.com 조직 저장소",
+        });
+    });
+```
+
+| 옵션(`GitHubInstance`) | 설명 |
+| --- | --- |
+| `Name` | 인스턴스 이름. Tool의 `instance` 인자 값(대소문자 무시). 비거나 중복이면 `ArgumentException` |
+| `Endpoint` | GitHub MCP 주소 전체(절대 http/https URI). `user:token@` 같은 사용자 정보를 넣으면 `ArgumentException` |
+| `Token` | Bearer 인증용 GitHub Personal Access Token. 앞뒤 공백은 지운다 |
+| `Description` | 용도 설명(선택). `github_list_instances`에 노출된다 |
+
+- 인스턴스는 1개 이상 등록해야 하며 기본 인스턴스는 없다. 모든 호출에 `instance`가 필요하다.
+- 전송은 Streamable HTTP만 쓴다(SSE 미지원).
+- 노출되는 GitHub Tool 범위는 PAT 권한으로 정한다. `X-MCP-Toolsets` 등 추가 헤더는 지원하지 않는다.
+- Token 암복호는 소비 서버 책임이다.
+
 ## 제공 Tool
 
 | 분류 | Tool 클래스 | 등록 방법 | Tool 수 |
@@ -121,6 +154,7 @@ builder.Services.AddMcpServer()
 | AgentResource 문서 | `Tools.AgentResource.*` 4개 | `WithAgentResourceTools(...)` | 21 |
 | Redmine | `Tools.Redmine.*`, `Tools.Redmine.V7.*` | `WithRedmineTools(...)` | V2_2: 27, V7_0: 61 |
 | Jenkins MCP 중계 | `Tools.Jenkins.JenkinsTools` | `WithJenkinsTools(...)` | 3 |
+| GitHub MCP 중계 | `Tools.GitHub.GitHubTools` | `WithGitHubTools(...)` | 3 |
 
 각 Tool 명세의 표기:
 
@@ -1779,6 +1813,14 @@ Redmine 첨부를 삭제한다. 되돌릴 수 없다. 성공 시 본문이 비�
 - `instance` 누락·미등록, `tool` 누락·공백, `arguments`가 객체가 아니면 Jenkins를 호출하지 않는다. `instance` 문제면 등록된 이름을 안내한다.
 - Jenkins가 보낸 MCP 오류(없는 Tool, 잘못된 인자 등)는 `Jenkins '{instance}' returned error {code}: ...`로 반환한다. 연결은 유지한다.
 - 연결·HTTP 오류는 `Jenkins '{instance}' request failed (HTTP 401): ...`로 반환하고 해당 인스턴스 연결을 버린다. 다음 호출에서 다시 연결한다.
+
+### GitHub MCP 중계 — `Tools.GitHub.GitHubTools`
+
+`github_list_instances`, `github_list_tools`, `github_call_tool`은 Jenkins 중계 Tool과 파라미터·힌트·반환·캐시가 같다. 차이는 다음과 같다.
+
+- `github_list_instances`는 Token을 포함하지 않는다.
+- 오류 메시지의 서비스 이름이 `GitHub`이다: `Unknown GitHub instance '{name}'`, `GitHub '{instance}' returned error {code}: ...`, `GitHub '{instance}' request failed (HTTP 401): ...`
+- 원격 GitHub MCP는 Tool이 많아 `github_list_tools` 결과가 클 수 있다.
 
 ## 빌드·테스트
 
