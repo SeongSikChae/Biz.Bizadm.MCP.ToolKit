@@ -71,7 +71,7 @@ builder.Services.AddMcpServer()
 
 ### Jenkins Tool 등록
 
-Jenkins MCP Server 플러그인(`/mcp-server/mcp`)을 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. Jenkins 쪽 Tool 목록은 인스턴스마다 다를 수 있으므로 `jenkins_list_tools`로 해당 인스턴스에서 직접 조회합니다.
+Jenkins MCP Server 플러그인(`/mcp-server/mcp`)을 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. Jenkins 쪽 Tool 목록은 인스턴스마다 다를 수 있으므로 `jenkins_list_tools`로 해당 인스턴스에서 직접 조회합니다. Jenkins MCP Server가 노출하지 않는 Job 설정(config.xml) 조회·수정과 Job 삭제는 Jenkins REST API를 직접 부르는 Tool 4개로 함께 등록됩니다.
 
 ```csharp
 using Biz.Bizadm.MCP.ToolKit.Jenkins;
@@ -102,8 +102,8 @@ builder.Services.AddMcpServer()
 | 옵션(`JenkinsInstance`) | 설명 |
 | --- | --- |
 | `Name` | 인스턴스 이름. Tool의 `instance` 인자 값(대소문자 무시). 비거나 중복이면 `ArgumentException` |
-| `Endpoint` | Jenkins MCP 주소 전체(절대 http/https URI). `user:token@` 같은 사용자 정보를 넣으면 `ArgumentException` |
-| `User`, `ApiToken` | Basic 인증용 Jenkins 사용자와 API Token. API Token으로 인증하면 crumb이 필요 없다 |
+| `Endpoint` | Jenkins MCP 주소 전체(절대 http/https URI). `user:token@` 같은 사용자 정보를 넣으면 `ArgumentException`. 경로가 `/mcp-server/mcp`로 끝나면 그 앞이 Job 설정 REST Tool의 Jenkins 루트가 된다(끝나지 않아도 등록은 되며, REST Tool만 오류 결과) |
+| `User`, `ApiToken` | Basic 인증용 Jenkins 사용자와 API Token. API Token으로 인증하면 crumb이 필요 없다. 비밀번호를 넣으면 REST Tool이 403 crumb 오류를 받는다 |
 | `Description` | 용도 설명(선택). `jenkins_list_instances`에 노출된다 |
 
 - 인스턴스는 1개 이상 등록해야 하며 기본 인스턴스는 없다. 모든 호출에 `instance`가 필요하다.
@@ -158,6 +158,7 @@ builder.Services.AddMcpServer()
 | AgentResource 문서 | `Tools.AgentResource.*` 4개 | `WithAgentResourceTools(...)` | 21 |
 | Redmine | `Tools.Redmine.*`, `Tools.Redmine.V7.*` | `WithRedmineTools(...)` | V2_2: 27, V7_0: 61 |
 | Jenkins MCP 중계 | `Tools.Jenkins.JenkinsTools` | `WithJenkinsTools(...)` | 3 |
+| Jenkins Job 설정 (REST) | `Tools.Jenkins.JenkinsJobTools` | `WithJenkinsTools(...)` | 4 |
 | GitHub MCP 중계 | `Tools.GitHub.GitHubTools` | `WithGitHubTools(...)` | 3 |
 | GitHub 태그·ref (REST) | `Tools.GitHub.GitHubRefTools` | `WithGitHubTools(...)` | 4 |
 | GitHub 릴리스 (REST) | `Tools.GitHub.GitHubReleaseTools` | `WithGitHubTools(...)` | 5 |
@@ -1819,6 +1820,30 @@ Redmine 첨부를 삭제한다. 되돌릴 수 없다. 성공 시 본문이 비�
 - `instance` 누락·미등록, `tool` 누락·공백, `arguments`가 객체가 아니면 Jenkins를 호출하지 않는다. `instance` 문제면 등록된 이름을 안내한다.
 - Jenkins가 보낸 MCP 오류(없는 Tool, 잘못된 인자 등)는 `Jenkins '{instance}' returned error {code}: ...`로 반환한다. 연결은 유지한다.
 - 연결·HTTP 오류는 `Jenkins '{instance}' request failed (HTTP 401): ...`로 반환하고 해당 인스턴스 연결을 버린다. 다음 호출에서 다시 연결한다.
+
+### Jenkins Job 설정 (REST) — `Tools.Jenkins.JenkinsJobTools`
+
+Jenkins MCP Server가 노출하지 않는 Job 설정 조회·수정과 Job 삭제를 Jenkins REST API로 직접 처리한다. REST 루트는 인스턴스 `Endpoint`에서 `/mcp-server/mcp`를 뗀 주소다(예: `http://jenkins:8080/mcp-server/mcp` → `http://jenkins:8080/`, 컨텍스트 경로 유지). 인증은 인스턴스의 `User`·`ApiToken`(Basic)이며 crumb은 보내지 않는다. 권한 검사는 Jenkins가 한다. 리다이렉트는 따라가지 않는다.
+
+모두 `instance`, `job`이 필수다. `job`은 Jenkins 전체 이름(`folder/sub/job`)이며 표시 이름(display name)이 아닌 Job 이름이다. `job/a/job/b` 형식이나 URL은 받지 않는다. 세그먼트마다 URL 인코딩하므로 Multibranch 브랜치 이름의 `%2F`는 그대로 넣는다.
+
+| Tool | 추가 파라미터 | REST | 힌트 | 반환 | 필요 권한 |
+| --- | --- | --- | --- | --- | --- |
+| `jenkins_get_job_config` | - | `GET /job/<경로>/config.xml` | 읽기 전용 · 멱등 · 외부 접근 | config.xml 원문 | Job ExtendedRead 또는 Configure(Read만으로는 403) |
+| `jenkins_update_job_config` | `configXml`(전체 XML) | `POST /job/<경로>/config.xml` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{updated}` | Job Configure |
+| `jenkins_update_pipeline_script` | `script` | `GET` → `<script>` 교체 → `POST config.xml` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{updated, previousScriptLength, scriptLength}` | Job ExtendedRead(또는 Configure)와 Configure |
+| `jenkins_delete_job` | - | `POST /job/<경로>/doDelete` → `GET config.xml` 404 확인 | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{deleted}` | Job Delete |
+
+- `jenkins_get_job_config` 결과에는 Jenkins가 암호화해 저장한 secret(`{AQAAAB...}`)이 그대로 들어 있을 수 있다.
+- `jenkins_update_job_config`는 받은 XML을 UTF-8로 그대로 보낸다. XML 선언의 encoding은 검사하지 않는다. 재시작 없이 반영되고 빌드 기록은 유지된다.
+- `jenkins_update_pipeline_script`는 `flow-definition/definition[@class=CpsFlowDefinition]/script`만 바꾼다. SCM Jenkinsfile Job(`CpsScmFlowDefinition`)·Freestyle Job은 거부한다. Jenkins의 XML 1.1 선언은 그대로 보존하고, `<script>` 밖 내용은 의미가 같게 유지한다(`<a/>` → `<a />`처럼 표기는 바뀔 수 있다). XML 1.0에서 허용하지 않는 제어 문자가 있는 config나 스크립트는 거부한다. 두 길이는 `\r\n`·`\r`을 `\n`으로 정규화한 뒤의 값이다. 읽기와 쓰기 사이의 다른 변경은 막지 않는다.
+- `jenkins_delete_job`은 폴더·Multibranch Job이면 그 안의 모든 Job과 빌드 기록까지 지운다. 이미 없으면 404 오류다. `doDelete`가 2xx·3xx를 돌려주면 `GET config.xml`이 404인지로 삭제를 확인한다.
+
+오류(모두 `isError: true` 결과로 반환, User·API Token은 넣지 않는다, 재시도하지 않는다):
+
+- `instance` 누락·미등록, `Endpoint`가 `/mcp-server/mcp`로 끝나지 않음, `job` 누락·빈 세그먼트·`.`·`..`·`\`, 필수 본문 누락이면 Jenkins를 호출하지 않는다.
+- HTTP 오류: `Jenkins '{instance}' {METHOD} {path} failed (HTTP {code}): {요약}`. 요약은 HTML이면 `<title>`(5xx면 본문 텍스트를 덧붙임), 아니면 본문 앞 200자다. 403에 crumb 오류가 있으면 API Token이 필요하다고 안내한다. 3xx는 `redirected to {Location}`이다.
+- 삭제 확인 실패: `Jenkins '{instance}' POST {path}doDelete returned HTTP {code} ({Location}); job '{job}' was not deleted or could not be verified (GET config.xml: HTTP {code2}).`
 
 ### GitHub MCP 중계 — `Tools.GitHub.GitHubTools`
 

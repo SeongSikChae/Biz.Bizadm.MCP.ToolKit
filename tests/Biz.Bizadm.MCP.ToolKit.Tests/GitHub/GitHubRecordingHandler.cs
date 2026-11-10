@@ -12,8 +12,13 @@ internal sealed class GitHubRecordingHandler : HttpMessageHandler
 
     public (HttpMethod Method, Uri Uri, string? Body, Dictionary<string, string> Headers) Last => Requests[^1];
 
-    public void Enqueue(HttpStatusCode status, string body = "", string mediaType = "application/json")
-        => _responses.Enqueue(() => new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, mediaType) });
+    public void Enqueue(HttpStatusCode status, string body = "", string mediaType = "application/json", Action<HttpResponseMessage>? configure = null)
+        => _responses.Enqueue(() =>
+        {
+            HttpResponseMessage response = new(status) { Content = new StringContent(body, Encoding.UTF8, mediaType) };
+            configure?.Invoke(response);
+            return response;
+        });
 
     public void EnqueueException(Exception exception) => _responses.Enqueue(() => throw exception);
 

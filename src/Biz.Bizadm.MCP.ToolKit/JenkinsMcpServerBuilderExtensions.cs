@@ -11,7 +11,7 @@ public static class JenkinsMcpServerBuilderExtensions
 {
     internal const string Label = "Jenkins";
 
-    /// <summary>Jenkins MCP 중계 Tool(jenkins_list_instances, jenkins_list_tools, jenkins_call_tool)을 인스턴스 옵션과 함께 등록한다.</summary>
+    /// <summary>Jenkins MCP 중계 Tool(jenkins_list_instances, jenkins_list_tools, jenkins_call_tool)과 Job 설정 REST Tool(jenkins_get_job_config, jenkins_update_job_config, jenkins_update_pipeline_script, jenkins_delete_job)을 인스턴스 옵션과 함께 등록한다.</summary>
     /// <param name="builder">Tool을 등록할 MCP Server 빌더</param>
     /// <param name="configure">Jenkins 인스턴스 옵션 설정</param>
     /// <returns>같은 <paramref name="builder"/></returns>
@@ -29,7 +29,9 @@ public static class JenkinsMcpServerBuilderExtensions
         builder.Services.AddSingleton(validated);
         builder.Services.AddKeyedSingleton(JenkinsTools.PoolKey,
             (sp, _) => new McpRelayPool(Label, sp.GetRequiredService<JenkinsOptions>().Instances.Select(ToTarget)));
+        builder.Services.AddSingleton(sp => new JenkinsRestClient(sp.GetRequiredService<JenkinsOptions>()));
         builder.WithTools<JenkinsTools>();
+        builder.WithTools<JenkinsJobTools>();
         return builder;
     }
 

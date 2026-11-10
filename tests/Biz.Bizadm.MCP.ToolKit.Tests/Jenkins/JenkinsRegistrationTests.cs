@@ -26,12 +26,44 @@ public sealed class JenkinsRegistrationTests
     }
 
     [TestMethod]
-    public void WithJenkinsTools_RegistersThreeGatewayTools()
+    public void WithJenkinsTools_RegistersGatewayAndJobTools()
     {
         using ServiceProvider provider = CreateServices(o => o.Instances.Add(Instance())).BuildServiceProvider();
-        string[] names = [.. provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order()];
+        string[] names = [.. provider.GetServices<McpServerTool>().Select(t => t.ProtocolTool.Name).Order(StringComparer.Ordinal)];
 
-        CollectionAssert.AreEqual(new[] { "jenkins_call_tool", "jenkins_list_instances", "jenkins_list_tools" }, names);
+        CollectionAssert.AreEqual(new[]
+        {
+            "jenkins_call_tool", "jenkins_delete_job", "jenkins_get_job_config", "jenkins_list_instances",
+            "jenkins_list_tools", "jenkins_update_job_config", "jenkins_update_pipeline_script",
+        }, names);
+    }
+
+    [TestMethod]
+    public void WithJenkinsTools_JobToolAnnotationsMatchDesign()
+    {
+        using ServiceProvider provider = CreateServices(o => o.Instances.Add(Instance())).BuildServiceProvider();
+        Dictionary<string, McpServerTool> tools = provider.GetServices<McpServerTool>().ToDictionary(t => t.ProtocolTool.Name);
+
+        Assert.IsTrue(tools["jenkins_get_job_config"].ProtocolTool.Annotations!.ReadOnlyHint);
+        Assert.IsFalse(tools["jenkins_get_job_config"].ProtocolTool.Annotations!.DestructiveHint);
+        foreach (string name in new[] { "jenkins_update_job_config", "jenkins_update_pipeline_script", "jenkins_delete_job" })
+        {
+            Assert.IsFalse(tools[name].ProtocolTool.Annotations!.ReadOnlyHint, name);
+            Assert.IsTrue(tools[name].ProtocolTool.Annotations!.DestructiveHint, name);
+        }
+        StringAssert.Contains(tools["jenkins_delete_job"].ProtocolTool.Description, "그 안의 모든 Job과 빌드 기록까지 지운다");
+        StringAssert.Contains(tools["jenkins_delete_job"].ProtocolTool.Description, "이미 없으면 404 오류");
+    }
+
+    [TestMethod]
+    public void WithJenkinsTools_NonMcpServerEndpoint_StillRegisters()
+    {
+        using ServiceProvider provider = CreateServices(o => o.Instances.Add(new JenkinsInstance
+        {
+            Name = "proxy", Endpoint = "http://proxy.example/mcp", User = "u", ApiToken = Token,
+        })).BuildServiceProvider();
+
+        Assert.HasCount(7, provider.GetServices<McpServerTool>());
     }
 
     [TestMethod]
