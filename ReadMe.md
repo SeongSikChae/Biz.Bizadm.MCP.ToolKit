@@ -11,7 +11,7 @@ ASP.NET Core MCP Server에 `WithTools`로 등록하는 Tool 모음 클래스 라
 ### 패키지 참조
 
 ```xml
-<PackageReference Include="Biz.Bizadm.MCP.ToolKit" Version="1.4.0" />
+<PackageReference Include="Biz.Bizadm.MCP.ToolKit" Version="1.5.0" />
 ```
 
 ### 개별 Tool 등록
