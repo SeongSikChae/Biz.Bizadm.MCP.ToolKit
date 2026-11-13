@@ -175,14 +175,14 @@ builder.Services.AddMcpServer()
 | --- | --- |
 | `Name` | 인스턴스 이름. Tool의 `instance` 인자 값(대소문자 무시). 비거나 중복이면 `ArgumentException` |
 | `ServiceIndex` | service index 주소(절대 http/https URI). `user:pass@` 같은 사용자 정보를 넣으면 `ArgumentException`. 결과·오류 메시지에 노출되므로 URL 경로에도 비밀(키)을 넣지 않는다 |
-| `ApiKey` | 쓰기 Tool용 API Key(선택). 없으면 쓰기 Tool 호출 시 오류. PackagePublish 요청에만 `X-NuGet-ApiKey`로 보낸다 |
+| `ApiKey` | 쓰기 Tool용 API Key(선택). 없으면 쓰기 Tool 호출 시 오류. PackagePublish·SymbolPackagePublish 요청에만 `X-NuGet-ApiKey`로 보낸다 |
 | `User`·`Password` | 읽기에도 인증이 필요한 피드용 Basic(선택, 함께 설정). `User`에 `:`가 있으면 `ArgumentException` |
 | `Description` | 용도 설명(선택). `nuget_list_instances`에 노출된다 |
 
 - 인스턴스는 1개 이상 등록해야 하며 기본 인스턴스는 없다. `nuget_list_instances` 외 모든 호출에 `instance`가 필요하다.
 - `ApiKey`·`User`·`Password`에 제어 문자가 있으면 `ArgumentException`이다(값은 메시지에 넣지 않는다). 암복호는 소비 서버 책임이다.
 - Basic은 `ServiceIndex`와 scheme·host·port가 같은 요청에만 보낸다. 리소스가 다른 호스트에 있으면서 인증이 필요한 피드는 401로 실패한다.
-- ApiKey는 service index가 알려 준 PackagePublish 주소로 보낸다(service index를 신뢰한다는 전제). 단, `ServiceIndex`가 https인데 publish 주소가 http면 요청 전 오류다.
+- ApiKey는 service index가 알려 준 PackagePublish·SymbolPackagePublish 주소로 보낸다(service index를 신뢰한다는 전제). 단, `ServiceIndex`가 https인데 publish·symbol publish 주소가 http면 요청 전 오류다.
 - `ServiceIndex`가 http이면 Basic·ApiKey가 평문으로 전송된다. 내부망 피드에서만 쓴다.
 - 리다이렉트를 따라가지 않는다. http→https로 리다이렉트하는 피드는 https 주소로 등록한다.
 - service index는 인스턴스마다 처음 호출할 때 읽어 프로세스 수명 동안 캐시한다(실패는 캐시하지 않음). 피드 주소가 바뀌면 재시작한다.
@@ -1928,7 +1928,7 @@ GitHub MCP Server가 노출하지 않는 릴리스 쓰기를 GitHub REST API로 
 
 ### NuGet 피드 (REST) — `Tools.NuGet.NuGetTools`
 
-NuGet Server API v3를 직접 호출한다. 리소스 주소는 service index의 `@type`으로 고른다(검색 `SearchQueryService/3.5.0`→`3.0.0-rc`→`3.0.0-beta`→무버전, 버전 목록 `PackageBaseAddress/3.0.0`, 메타데이터 `RegistrationsBaseUrl/3.6.0`→`3.4.0`→`3.0.0-rc`→`3.0.0-beta`→무버전, 쓰기 `PackagePublish/2.0.0`). 피드에 필요한 리소스가 없으면 오류다. `nuget_list_instances` 외에는 `instance`가 필수다. `id`는 NuGet ID 규칙(문자(유니코드 포함)·숫자·`_`, 그 사이의 `.`·`-`, 최대 100자), `version`은 NuGet 버전이며 정규화해서 쓴다(`1.0` → `1.0.0`, build metadata 제거).
+NuGet Server API v3를 직접 호출한다. 리소스 주소는 service index의 `@type`으로 고른다(검색 `SearchQueryService/3.5.0`→`3.0.0-rc`→`3.0.0-beta`→무버전, 버전 목록 `PackageBaseAddress/3.0.0`, 메타데이터 `RegistrationsBaseUrl/3.6.0`→`3.4.0`→`3.0.0-rc`→`3.0.0-beta`→무버전, 쓰기 `PackagePublish/2.0.0`, 심볼 쓰기 `SymbolPackagePublish/4.9.0`). 피드에 필요한 리소스가 없으면 오류다. `nuget_list_instances` 외에는 `instance`가 필수다. `id`는 NuGet ID 규칙(문자(유니코드 포함)·숫자·`_`, 그 사이의 `.`·`-`, 최대 100자), `version`은 NuGet 버전이며 정규화해서 쓴다(`1.0` → `1.0.0`, build metadata 제거).
 
 | Tool | 추가 파라미터 | REST | 힌트 | 반환 |
 | --- | --- | --- | --- | --- |
@@ -1938,6 +1938,7 @@ NuGet Server API v3를 직접 호출한다. 리소스 주소는 service index의
 | `nuget_get_package_metadata` | `id`(필수), `version` | `GET {registrations}/{id 소문자}/index.json`(+ page) | 읽기 전용 · 멱등 · 외부 접근 | 버전 없음: `{id, versions[{version, listed, published, deprecated, vulnerable}]}` / 있음: `{id, version, listed, published, projectUrl, dependencyGroups, deprecated, deprecation, vulnerable, vulnerabilities}` |
 | `nuget_check_vulnerabilities` | `id`(필수), `version`(필수) | 메타데이터와 같음 | 읽기 전용 · 멱등 · 외부 접근 | `{id, version, vulnerable, vulnerabilities[{severity, advisoryUrl}], deprecated}` |
 | `nuget_push_package` | `path` 또는 `contentBase64`(정확히 하나), `skipDuplicate`(기본 false) | `PUT {publish}` multipart `package` | 쓰기 · 외부 접근 | `{pushed{id, version}, skipped}` |
+| `nuget_push_symbol_package` | `path` 또는 `contentBase64`(정확히 하나), `skipDuplicate`(기본 false) | `PUT {symbol publish}` multipart `package` | 쓰기 · 외부 접근 | `{pushed{id, version}, skipped}` |
 | `nuget_unlist_package` | `id`(필수), `version`(필수) | `DELETE {publish}/{id}/{version}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{unlisted{id, version}}` |
 | `nuget_relist_package` | `id`(필수), `version`(필수) | `POST {publish}/{id}/{version}` | 쓰기 · 멱등 · 외부 접근 | `{relisted{id, version}}` |
 
@@ -1950,8 +1951,9 @@ NuGet Server API v3를 직접 호출한다. 리소스 주소는 service index의
   - 취약점·deprecation 정보 제공 여부는 service index에 `VulnerabilityInfo/6.7.0` 리소스가 있는지로 판정한다(호출하지 않음). 제공하는 피드(nuget.org)는 필드가 없으면 `false`, 제공하지 않는 사설 피드는 `null`(정보 없음)이다.
 - push
   - `path`는 MCP 서버 호스트의 절대 로컬 경로다. 허용 루트 제한은 없다. Windows는 드라이브 경로(`C:\...`)만 받아 UNC·장치 경로(`\\host\share`, `\\?\` 등)를 파일 접근 전에 거부한다. 네트워크 맵 드라이브와 UNC를 가리키는 링크·junction을 통한 원격 접근은 막지 않는다.
-  - 패키지는 250MB까지, `.snupkg`는 지원하지 않는다. 올리기 전에 루트 `.nuspec`(1MB까지, DTD 금지)에서 id·version을 읽고, 잘못된 패키지는 요청하지 않는다.
+  - 패키지는 250MB까지다. `nuget_push_package`는 `.nupkg`만 받고 `.snupkg`는 지원하지 않는다. 올리기 전에 루트 `.nuspec`(1MB까지, DTD 금지)에서 id·version을 읽고, 잘못된 패키지는 요청하지 않는다.
   - 이미 있는 버전(HTTP 409)은 오류이며 `skipDuplicate=true`면 `skipped: true`로 성공한다.
+  - `nuget_push_symbol_package`는 `.snupkg`(path는 확장자 `.snupkg`)만 받고, `.nuspec`에 `SymbolsPackage` packageType이 있어야 한다. 피드에 `SymbolPackagePublish/4.9.0` 리소스가 없으면 오류다. 대응하는 `.nupkg`를 먼저 올린다. nuget.org는 같은 버전의 심볼을 다시 올릴 수 있고, HTTP 409는 "이전 심볼이 아직 사용 가능하지 않음(검증 중)"이다. 이 409도 `skipDuplicate=true`면 `skipped: true`로 성공한다.
 - unlist: nuget.org는 검색에서만 숨기고 `nuget_relist_package`로 되돌릴 수 있다. 일부 사설 피드(BaGet, Nexus 설정 등)는 버전을 실제로 삭제할 수 있다.
 - 쓰기 Tool은 인스턴스에 `ApiKey`가 없으면 요청하지 않는다.
 
