@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Net.Http.Headers;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -186,6 +187,84 @@ public sealed class NuGetTools
             ["vulnerabilities"] = safety.Vulnerabilities,
             ["deprecated"] = safety.Deprecated,
         }.ToJsonString();
+    }
+
+    /// <summary>패키지를 올린다.</summary>
+    [McpServerTool(Name = "nuget_push_package", ReadOnly = false, Idempotent = false, Destructive = false, OpenWorld = true)]
+    [Description("지정한 NuGet 피드에 .nupkg를 올리고 {pushed{id, version}, skipped}를 반환한다. path(MCP 서버 호스트의 절대 로컬 경로, UNC·장치 경로 불가)와 contentBase64 중 정확히 하나를 준다. "
+        + "패키지 상한은 250MB, .snupkg는 지원하지 않는다. 이미 있으면 HTTP 409 오류이며 skipDuplicate=true면 skipped=true로 성공 처리한다. 인스턴스에 ApiKey가 필요하다.")]
+    public async Task<string> PushPackage(
+        [Description(InstanceDescription)] string? instance = null,
+        [Description("MCP 서버 호스트의 .nupkg 절대 경로(path·contentBase64 중 하나)")] string? path = null,
+        [Description(".nupkg 내용 Base64(path·contentBase64 중 하나)")] string? contentBase64 = null,
+        [Description("이미 있는 버전(HTTP 409)을 성공으로 볼지 여부(기본 false)")] bool skipDuplicate = false,
+        CancellationToken cancellationToken = default)
+    {
+        NuGetInstance target = RequireWritable(instance);
+        if (string.IsNullOrWhiteSpace(path) == string.IsNullOrWhiteSpace(contentBase64))
+            throw new McpException("Specify exactly one of path or contentBase64.");
+        byte[] bytes = !string.IsNullOrWhiteSpace(path)
+            ? await NuGetPackageFile.ReadAsync(path.Trim(), cancellationToken).ConfigureAwait(false)
+            : NuGetPackageFile.Decode(contentBase64!);
+        (string id, string version) = NuGetPackageFile.ReadIdentity(bytes);
+
+        Uri publish = await _client.GetResourceAsync(target, NuGetResource.Publish, cancellationToken).ConfigureAwait(false);
+        using MultipartFormDataContent form = new();
+        ByteArrayContent file = new(bytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        form.Add(file, "package", "package.nupkg");
+        (int status, string body, string? reason) = await _client.SendPublishAsync(target, HttpMethod.Put, publish, form, cancellationToken).ConfigureAwait(false);
+        if (status == 409 && !skipDuplicate)
+        {
+            string why = NuGetFeedClient.Summarize(body) is { Length: > 0 } s ? s : reason ?? "Conflict";
+            throw new McpException($"NuGet '{target.Name}' package '{id}' {version} already exists (HTTP 409): {why}. Use skipDuplicate to ignore.");
+        }
+        return new JsonObject
+        {
+            ["pushed"] = new JsonObject { ["id"] = id, ["version"] = version },
+            ["skipped"] = status == 409,
+        }.ToJsonString();
+    }
+
+    /// <summary>버전을 unlist한다.</summary>
+    [McpServerTool(Name = "nuget_unlist_package", ReadOnly = false, Idempotent = true, Destructive = true, OpenWorld = true)]
+    [Description("지정한 NuGet 피드에서 패키지 버전을 unlist(DELETE)하고 {unlisted{id, version}}를 반환한다. nuget.org에서는 검색에서만 숨겨지고 nuget_relist_package로 되돌릴 수 있지만, "
+        + "일부 사설 피드(BaGet, Nexus 설정 등)는 버전을 실제로 삭제할 수 있다. 인스턴스에 ApiKey가 필요하다.")]
+    public Task<string> UnlistPackage(
+        [Description(InstanceDescription)] string? instance = null,
+        [Description(IdDescription)] string? id = null,
+        [Description("버전(필수, 예: 1.2.3)")] string? version = null,
+        CancellationToken cancellationToken = default)
+        => ChangeListingAsync(instance, id, version, HttpMethod.Delete, "unlisted", cancellationToken);
+
+    /// <summary>unlist한 버전을 다시 listed로 바꾼다.</summary>
+    [McpServerTool(Name = "nuget_relist_package", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = true)]
+    [Description("지정한 NuGet 피드에서 unlist한 패키지 버전을 relist(POST)하고 {relisted{id, version}}를 반환한다. 인스턴스에 ApiKey가 필요하다.")]
+    public Task<string> RelistPackage(
+        [Description(InstanceDescription)] string? instance = null,
+        [Description(IdDescription)] string? id = null,
+        [Description("버전(필수, 예: 1.2.3)")] string? version = null,
+        CancellationToken cancellationToken = default)
+        => ChangeListingAsync(instance, id, version, HttpMethod.Post, "relisted", cancellationToken);
+
+    private async Task<string> ChangeListingAsync(string? instance, string? id, string? version, HttpMethod method, string key, CancellationToken cancellationToken)
+    {
+        NuGetInstance target = RequireWritable(instance);
+        string packageId = RequireId(id);
+        string normalized = RequireVersion(version);
+        Uri publish = await _client.GetResourceAsync(target, NuGetResource.Publish, cancellationToken).ConfigureAwait(false);
+        Uri uri = NuGetFeedClient.Child(publish, $"{Uri.EscapeDataString(packageId)}/{Uri.EscapeDataString(normalized)}");
+        (int status, string body, string? reason) = await _client.SendPublishAsync(target, method, uri, null, cancellationToken).ConfigureAwait(false);
+        if (status == 409)
+            throw NuGetFeedClient.Failure(target, method, uri, 409, body, reason, null, publish: true);
+        return new JsonObject { [key] = new JsonObject { ["id"] = packageId, ["version"] = normalized } }.ToJsonString();
+    }
+
+    // ApiKey가 없으면 service index를 읽기 전에 실패
+    private NuGetInstance RequireWritable(string? instance)
+    {
+        NuGetInstance target = _client.Resolve(instance);
+        return target.ApiKey is null ? throw new McpException($"NuGet '{target.Name}' has no ApiKey; write tools are unavailable.") : target;
     }
 
     // registration index → page(items 없으면 page @id GET) → leaf.catalogEntry
