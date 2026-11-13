@@ -22,14 +22,15 @@ internal static class McpRelayValidation
     /// <param name="name">인스턴스 이름</param>
     /// <param name="endpoint">MCP 주소</param>
     /// <param name="credentialHint">사용자 정보 대신 쓸 속성 안내(예: <c>User and ApiToken</c>)</param>
-    public static (string Name, string Endpoint) NameAndEndpoint(string label, HashSet<string> names, string? name, string? endpoint, string credentialHint)
+    /// <param name="property">메시지에 쓰는 주소 속성 이름. 기본값 <c>Endpoint</c></param>
+    public static (string Name, string Endpoint) NameAndEndpoint(string label, HashSet<string> names, string? name, string? endpoint, string credentialHint, string property = "Endpoint")
     {
         string trimmed = name?.Trim() ?? string.Empty;
         if (trimmed.Length == 0)
             throw new ArgumentException($"{label} instance Name is required", ParamName);
         if (!names.Add(trimmed))
             throw new ArgumentException($"Duplicate {label} instance name: {trimmed}", ParamName);
-        return (trimmed, AbsoluteHttpUri(label, trimmed, "Endpoint", endpoint, credentialHint));
+        return (trimmed, AbsoluteHttpUri(label, trimmed, property, endpoint, credentialHint));
     }
 
     /// <summary>절대 http/https URI이고 사용자 정보가 없는지 검사하고 정규화한 값을 반환한다.</summary>
