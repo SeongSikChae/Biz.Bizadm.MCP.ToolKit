@@ -116,7 +116,7 @@ phase: 설계
 - `ApiKey`는 `X-NuGet-ApiKey` 헤더로 **PackagePublish 요청에만** 붙인다(NuGet client와 같은 동작). nuget.org는 publish 호스트가 index 호스트와 달라 origin 제한을 두지 않는다. 그래서 service index를 신뢰한다는 전제다(README에 명시). 단, `ServiceIndex`가 https인데 publish `@id`가 http면 요청 전에 `McpException`: `NuGet '{name}' publish resource is not https; ApiKey would be sent in clear text.` (scheme 하향 방지. `ServiceIndex` 자체가 http인 경우는 결정 10대로 허용) 같은 origin이면 publish 요청에 Basic도 함께 붙는다(Azure Artifacts 형태).
 - `User-Agent: Biz.Bizadm.MCP.ToolKit/{버전}`, `X-NuGet-Protocol-Version: 4.1.0`(NuGet client와 같은 헤더. nuget.org가 이 헤더로 응답 형태를 정할 수 있다).
 - 요청 HTTP 버전은 1.1로 고정한다(`HttpClient.DefaultRequestVersion`). push 오류 사유를 ReasonPhrase로 읽는데 HTTP/2에는 ReasonPhrase가 없기 때문이다.
-- 응답 본문은 **50MB 상한**으로 읽는다(사용자 결정). 넘으면 `NuGet '{instance}' {METHOD} {url} response exceeded 50MB.`
+- 응답 본문은 **50MB 상한**으로 읽는다(사용자 결정). 넘으면 `NuGet '{instance}' {METHOD} {url} response exceeded {n} bytes.` (`{n}`은 실제 상한, 기본 52428800)
 - 헤더 설정을 포함한 요청 생성은 전송 오류 처리 `try` 안에서 한다(헤더 형식 예외도 `McpException`, 값은 메시지에 넣지 않음).
 - 자동 리다이렉트는 끈다. `X-NuGet-ApiKey`는 .NET이 리다이렉트 시 지우지 않는 사용자 헤더라 다른 호스트로 넘어갈 수 있기 때문이다. 3xx는 실패이며 메시지에 `Location`을 넣는다.
 - `SocketsHttpHandler { PooledConnectionLifetime = 2분, AllowAutoRedirect = false, AutomaticDecompression = All }`.
