@@ -26,14 +26,19 @@ internal static class NuGetPackageFile
         ? DrivePath.IsMatch(path)
         : path.StartsWith('/') && !path.StartsWith("//", StringComparison.Ordinal);
 
-    /// <summary>MCP 서버 호스트의 <c>.nupkg</c>를 읽는다. 파일에 접근하기 전에 경로 형태를 검사한다.</summary>
+    /// <summary>MCP 서버 호스트의 <c>.nupkg</c>(<paramref name="symbols"/>면 <c>.snupkg</c>)를 읽는다. 파일에 접근하기 전에 경로 형태를 검사한다.</summary>
     /// <exception cref="McpException">경로 형태·확장자·존재·크기·읽기 오류</exception>
-    public static async Task<byte[]> ReadAsync(string path, CancellationToken cancellationToken)
+    public static async Task<byte[]> ReadAsync(string path, CancellationToken cancellationToken, bool symbols = false)
     {
         bool windows = OperatingSystem.IsWindows();
         if (!IsLocalAbsolute(path, windows) || !IsLocalAbsolute(FullPath(path), windows))
             throw new McpException(PathError);
-        if (!path.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".snupkg", StringComparison.OrdinalIgnoreCase))
+        if (symbols)
+        {
+            if (!path.EndsWith(".snupkg", StringComparison.OrdinalIgnoreCase))
+                throw new McpException("path must be a .snupkg file.");
+        }
+        else if (!path.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".snupkg", StringComparison.OrdinalIgnoreCase))
             throw new McpException("path must be a .nupkg file (.snupkg is not supported).");
         try
         {
@@ -83,9 +88,9 @@ internal static class NuGetPackageFile
         }
     }
 
-    /// <summary>루트 <c>.nuspec</c>에서 id와 정규화한 version을 읽는다.</summary>
-    /// <exception cref="McpException">zip 아님, nuspec 없음·너무 큼·잘못된 XML, id·version 없음</exception>
-    public static (string Id, string Version) ReadIdentity(byte[] package)
+    /// <summary>루트 <c>.nuspec</c>에서 id와 정규화한 version을 읽는다. <paramref name="symbols"/>면 <c>SymbolsPackage</c> packageType이 있어야 한다.</summary>
+    /// <exception cref="McpException">zip 아님, nuspec 없음·너무 큼·잘못된 XML, (symbols) SymbolsPackage 없음, id·version 없음</exception>
+    public static (string Id, string Version) ReadIdentity(byte[] package, bool symbols = false)
     {
         try
         {
@@ -114,6 +119,12 @@ internal static class NuGetPackageFile
                 ?? throw new McpException(".nuspec has no metadata element.");
             string? Value(string name) => metadata.Elements().FirstOrDefault(e => e.Name.LocalName == name)?.Value.Trim();
 
+            // 일반 .nupkg를 심볼 endpoint로 보내지 않게
+            if (symbols && !metadata.Elements().Where(e => e.Name.LocalName == "packageTypes").Elements()
+                    .Any(e => e.Name.LocalName == "packageType"
+                        && string.Equals((string?)e.Attribute("name"), "SymbolsPackage", StringComparison.OrdinalIgnoreCase)))
+                throw new McpException(".nuspec has no SymbolsPackage packageType; use nuget_push_package for .nupkg.");
+
             string id = Value("id") is { Length: > 0 } i ? i : throw new McpException(".nuspec has no id.");
             string? rawVersion = Value("version");
             return NuGetVersion.TryParse(rawVersion, out NuGetVersion? version)
@@ -122,7 +133,7 @@ internal static class NuGetPackageFile
         }
         catch (InvalidDataException ex)
         {
-            throw new McpException($"package is not a valid .nupkg (zip): {ex.Message}", ex);
+            throw new McpException($"package is not a valid {(symbols ? ".snupkg" : ".nupkg")} (zip): {ex.Message}", ex);
         }
         catch (XmlException ex)
         {

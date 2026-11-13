@@ -106,6 +106,40 @@ public sealed class NuGetPackageFileTests
         }
     }
 
+    internal const string SymbolsNuspec = """<?xml version="1.0"?><package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata><id>My.Pkg</id><version>1.0.0</version><packageTypes><packageType name="SymbolsPackage" /></packageTypes></metadata></package>""";
+
+    [TestMethod]
+    public void ReadIdentity_Symbols_RequiresSymbolsPackageType()
+    {
+        Assert.AreEqual(("My.Pkg", "1.0.0"), NuGetPackageFile.ReadIdentity(Package(SymbolsNuspec), symbols: true));
+        Assert.AreEqual(("My.Pkg", "1.0.0"), NuGetPackageFile.ReadIdentity(Package(SymbolsNuspec)));
+        Assert.AreEqual(".nuspec has no SymbolsPackage packageType; use nuget_push_package for .nupkg.",
+            Assert.ThrowsExactly<McpException>(() => NuGetPackageFile.ReadIdentity(Package(), symbols: true)).Message);
+        string dependency = SymbolsNuspec.Replace("SymbolsPackage", "Dependency", StringComparison.Ordinal);
+        Assert.AreEqual(".nuspec has no SymbolsPackage packageType; use nuget_push_package for .nupkg.",
+            Assert.ThrowsExactly<McpException>(() => NuGetPackageFile.ReadIdentity(Package(dependency), symbols: true)).Message);
+        StringAssert.StartsWith(Assert.ThrowsExactly<McpException>(() => NuGetPackageFile.ReadIdentity([1, 2, 3], symbols: true)).Message, "package is not a valid .snupkg (zip): ");
+    }
+
+    [TestMethod]
+    public async Task Read_Symbols_Extension()
+    {
+        string root = OperatingSystem.IsWindows() ? @"C:\" : "/";
+        Assert.AreEqual("path must be a .snupkg file.",
+            (await Assert.ThrowsExactlyAsync<McpException>(() => NuGetPackageFile.ReadAsync(root + "a.nupkg", TestContext.CancellationToken, symbols: true))).Message);
+        string file = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".snupkg");
+        byte[] bytes = Package(SymbolsNuspec);
+        await File.WriteAllBytesAsync(file, bytes, TestContext.CancellationToken);
+        try
+        {
+            CollectionAssert.AreEqual(bytes, await NuGetPackageFile.ReadAsync(file, TestContext.CancellationToken, symbols: true));
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
     [TestMethod]
     public void Decode_Errors()
     {
