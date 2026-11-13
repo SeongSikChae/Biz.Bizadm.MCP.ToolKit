@@ -86,6 +86,8 @@ phase: 설계
     - `Path.GetFullPath` 결과에도 같은 검사를 한 번 더 한다. `GetFullPath` 예외는 같은 `McpException`이다.
     - 네트워크 맵 드라이브(`Z:\`)와 UNC를 가리키는 심볼릭 링크·junction을 통한 원격 접근은 막지 않는다(남은 위험, README에 명시).
   - `.nuspec` 루트 판정은 `/`와 `\` 구분자를 모두 본다
+  - 크기 상한(4차 검토 반영): 패키지는 250MB(nuget.org 업로드 상한과 같음)까지다. `path`는 파일 크기와 실제 읽은 바이트로(검사와 읽기 사이에 커져도 상한을 넘겨 읽지 않음), `contentBase64`는 디코딩 전 길이와 디코딩 결과로 검사한다. 넘으면 요청 전 `package file exceeds {n} bytes.`(path) / `package exceeds {n} bytes.`(Base64). `.nuspec`은 압축 해제 크기 1MB까지이며 zip 헤더 길이와 실제 읽은 바이트를 모두 검사한다(zip bomb 방지). 넘으면 `.nuspec exceeds {n} bytes.`
+  - zip 읽기의 `NotSupportedException`·`IOException`(지원하지 않는 압축 방식 등)은 `package could not be read: {메시지}`다
   - `contentBase64`: Base64 디코딩 실패면 요청 전 오류
   - 올리기 전에 zip을 열어 루트의 `.nuspec`에서 `id`·`version`을 읽는다. zip이 아니거나 `.nuspec`이 없으면 요청 전 오류. 결과에 이 값을 쓴다
   - 본문: `multipart/form-data`, part 이름 `package`, 파일 이름 `package.nupkg`, `application/octet-stream`

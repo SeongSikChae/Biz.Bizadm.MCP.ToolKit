@@ -147,6 +147,46 @@ builder.Services.AddMcpServer()
 - Token 암복호는 소비 서버 책임이다.
 - **호환성(1.4.0)**: `ApiEndpoint`가 필수가 되어, 1.3.x 설정에 `ApiEndpoint`가 없으면 등록 시 `ArgumentException`이다.
 
+### NuGet Tool 등록
+
+nuget.org와 사설 피드(Azure Artifacts, GitHub Packages, Nexus, BaGet 등)를 여러 개 등록하고, NuGet Server API v3를 직접 호출해 패키지를 조회·push·unlist·relist합니다. upstream MCP 서버를 거치지 않습니다.
+
+```csharp
+using Biz.Bizadm.MCP.ToolKit.NuGet;
+
+builder.Services.AddMcpServer()
+    .WithHttpTransport()
+    .WithNuGetTools(o =>
+    {
+        o.Instances.Add(new NuGetInstance { Name = "nuget.org", ServiceIndex = "https://api.nuget.org/v3/index.json" });
+        o.Instances.Add(new NuGetInstance
+        {
+            Name = "internal",
+            ServiceIndex = "https://pkgs.example.com/nuget/v3/index.json",
+            ApiKey = "<API Key>",
+            User = "<user>",
+            Password = "<password 또는 PAT>",
+            Description = "사내 패키지 피드",
+        });
+    });
+```
+
+| 옵션(`NuGetInstance`) | 설명 |
+| --- | --- |
+| `Name` | 인스턴스 이름. Tool의 `instance` 인자 값(대소문자 무시). 비거나 중복이면 `ArgumentException` |
+| `ServiceIndex` | service index 주소(절대 http/https URI). `user:pass@` 같은 사용자 정보를 넣으면 `ArgumentException`. 결과·오류 메시지에 노출되므로 URL 경로에도 비밀(키)을 넣지 않는다 |
+| `ApiKey` | 쓰기 Tool용 API Key(선택). 없으면 쓰기 Tool 호출 시 오류. PackagePublish 요청에만 `X-NuGet-ApiKey`로 보낸다 |
+| `User`·`Password` | 읽기에도 인증이 필요한 피드용 Basic(선택, 함께 설정). `User`에 `:`가 있으면 `ArgumentException` |
+| `Description` | 용도 설명(선택). `nuget_list_instances`에 노출된다 |
+
+- 인스턴스는 1개 이상 등록해야 하며 기본 인스턴스는 없다. `nuget_list_instances` 외 모든 호출에 `instance`가 필요하다.
+- `ApiKey`·`User`·`Password`에 제어 문자가 있으면 `ArgumentException`이다(값은 메시지에 넣지 않는다). 암복호는 소비 서버 책임이다.
+- Basic은 `ServiceIndex`와 scheme·host·port가 같은 요청에만 보낸다. 리소스가 다른 호스트에 있으면서 인증이 필요한 피드는 401로 실패한다.
+- ApiKey는 service index가 알려 준 PackagePublish 주소로 보낸다(service index를 신뢰한다는 전제). 단, `ServiceIndex`가 https인데 publish 주소가 http면 요청 전 오류다.
+- `ServiceIndex`가 http이면 Basic·ApiKey가 평문으로 전송된다. 내부망 피드에서만 쓴다.
+- 리다이렉트를 따라가지 않는다. http→https로 리다이렉트하는 피드는 https 주소로 등록한다.
+- service index는 인스턴스마다 처음 호출할 때 읽어 프로세스 수명 동안 캐시한다(실패는 캐시하지 않음). 피드 주소가 바뀌면 재시작한다.
+
 ## 제공 Tool
 
 | 분류 | Tool 클래스 | 등록 방법 | Tool 수 |
@@ -162,6 +202,7 @@ builder.Services.AddMcpServer()
 | GitHub MCP 중계 | `Tools.GitHub.GitHubTools` | `WithGitHubTools(...)` | 3 |
 | GitHub 태그·ref (REST) | `Tools.GitHub.GitHubRefTools` | `WithGitHubTools(...)` | 4 |
 | GitHub 릴리스 (REST) | `Tools.GitHub.GitHubReleaseTools` | `WithGitHubTools(...)` | 5 |
+| NuGet 피드 (REST) | `Tools.NuGet.NuGetTools` | `WithNuGetTools(...)` | 8 |
 
 각 Tool 명세의 표기:
 
@@ -1884,6 +1925,43 @@ GitHub MCP Server가 노출하지 않는 릴리스 쓰기를 GitHub REST API로 
 - asset 내용은 base64로 주며 디코딩 후 10 MiB(10,485,760 바이트)까지다. MCP 요청은 약 1.33배가 되므로 서버·프록시의 요청 본문 한도도 확인한다.
 - 업로드 주소는 릴리스 응답의 `upload_url`을 쓴다. Token을 실어 보내므로 scheme·host·port가 `ApiEndpoint`와 같아야 하며(github.com은 `uploads.github.com` 허용), 아니면 요청 전 오류다.
 - 오류 형식·Token 비노출·재시도 없음은 태그·ref Tool과 같다.
+
+### NuGet 피드 (REST) — `Tools.NuGet.NuGetTools`
+
+NuGet Server API v3를 직접 호출한다. 리소스 주소는 service index의 `@type`으로 고른다(검색 `SearchQueryService/3.5.0`→`3.0.0-rc`→`3.0.0-beta`→무버전, 버전 목록 `PackageBaseAddress/3.0.0`, 메타데이터 `RegistrationsBaseUrl/3.6.0`→`3.4.0`→`3.0.0-rc`→`3.0.0-beta`→무버전, 쓰기 `PackagePublish/2.0.0`). 피드에 필요한 리소스가 없으면 오류다. `nuget_list_instances` 외에는 `instance`가 필수다. `id`는 NuGet ID 규칙(문자(유니코드 포함)·숫자·`_`, 그 사이의 `.`·`-`, 최대 100자), `version`은 NuGet 버전이며 정규화해서 쓴다(`1.0` → `1.0.0`, build metadata 제거).
+
+| Tool | 추가 파라미터 | REST | 힌트 | 반환 |
+| --- | --- | --- | --- | --- |
+| `nuget_list_instances` | - | 없음 | 읽기 전용 · 멱등 | `[{name, description, serviceIndex, canWrite}]` |
+| `nuget_search_packages` | `query`, `prerelease`(기본 false), `packageType`, `skip`(기본 0), `take`(기본 20, 1~100) | `GET {search}?q=&skip=&take=&prerelease=&semVerLevel=2.0.0[&packageType=]` | 읽기 전용 · 멱등 · 외부 접근 | `{totalHits, packages[{id, version, description, totalDownloads, verified, versionCount}]}` |
+| `nuget_list_versions` | `id`(필수), `prerelease`(기본 true) | `GET {base}/{id 소문자}/index.json` | 읽기 전용 · 멱등 · 외부 접근 | `{id, versions}` |
+| `nuget_get_package_metadata` | `id`(필수), `version` | `GET {registrations}/{id 소문자}/index.json`(+ page) | 읽기 전용 · 멱등 · 외부 접근 | 버전 없음: `{id, versions[{version, listed, published, deprecated, vulnerable}]}` / 있음: `{id, version, listed, published, projectUrl, dependencyGroups, deprecated, deprecation, vulnerable, vulnerabilities}` |
+| `nuget_check_vulnerabilities` | `id`(필수), `version`(필수) | 메타데이터와 같음 | 읽기 전용 · 멱등 · 외부 접근 | `{id, version, vulnerable, vulnerabilities[{severity, advisoryUrl}], deprecated}` |
+| `nuget_push_package` | `path` 또는 `contentBase64`(정확히 하나), `skipDuplicate`(기본 false) | `PUT {publish}` multipart `package` | 쓰기 · 외부 접근 | `{pushed{id, version}, skipped}` |
+| `nuget_unlist_package` | `id`(필수), `version`(필수) | `DELETE {publish}/{id}/{version}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{unlisted{id, version}}` |
+| `nuget_relist_package` | `id`(필수), `version`(필수) | `POST {publish}/{id}/{version}` | 쓰기 · 멱등 · 외부 접근 | `{relisted{id, version}}` |
+
+- 검색: `description`은 앞 300자. 피드가 주지 않는 필드는 null(수치는 0)이다. `packageType`은 `SearchQueryService/3.5.0`만 지원하며 다른 피드는 무시할 수 있다.
+- 버전 목록: unlisted 버전도 포함한다(listed 여부는 메타데이터로 확인). 오름차순이며 해석할 수 없는 버전 문자열은 끝에 둔다.
+- 메타데이터·취약점
+  - `RegistrationsBaseUrl/3.6.0`이 없는 피드는 SemVer 2.0.0 버전이 빠질 수 있다.
+  - `listed`가 없으면 true다. nuget.org가 unlisted 버전에 넣는 1900년 `published`는 null로 바꾼다.
+  - 취약점은 registration의 `vulnerabilities`만 근거로 한다. `severity`는 `low`·`moderate`·`high`·`critical`(알 수 없는 값은 원문)이다.
+  - 취약점·deprecation 정보 제공 여부는 service index에 `VulnerabilityInfo/6.7.0` 리소스가 있는지로 판정한다(호출하지 않음). 제공하는 피드(nuget.org)는 필드가 없으면 `false`, 제공하지 않는 사설 피드는 `null`(정보 없음)이다.
+- push
+  - `path`는 MCP 서버 호스트의 절대 로컬 경로다. 허용 루트 제한은 없다. Windows는 드라이브 경로(`C:\...`)만 받아 UNC·장치 경로(`\\host\share`, `\\?\` 등)를 파일 접근 전에 거부한다. 네트워크 맵 드라이브와 UNC를 가리키는 링크·junction을 통한 원격 접근은 막지 않는다.
+  - 패키지는 250MB까지, `.snupkg`는 지원하지 않는다. 올리기 전에 루트 `.nuspec`(1MB까지, DTD 금지)에서 id·version을 읽고, 잘못된 패키지는 요청하지 않는다.
+  - 이미 있는 버전(HTTP 409)은 오류이며 `skipDuplicate=true`면 `skipped: true`로 성공한다.
+- unlist: nuget.org는 검색에서만 숨기고 `nuget_relist_package`로 되돌릴 수 있다. 일부 사설 피드(BaGet, Nexus 설정 등)는 버전을 실제로 삭제할 수 있다.
+- 쓰기 Tool은 인스턴스에 `ApiKey`가 없으면 요청하지 않는다.
+
+오류(모두 `isError: true` 결과로 반환, ApiKey·Password는 넣지 않는다, 재시도하지 않는다):
+
+- 입력 누락·형식 오류, 미등록 인스턴스, ApiKey 없음은 피드를 호출하지 않는다.
+- HTTP 오류: `NuGet '{instance}' {METHOD} {url} failed (HTTP {code}): {요약}`. `{url}`은 사용자 정보·query를 뺀 주소, 요약은 본문 앞 200자(없으면 ReasonPhrase), 3xx는 `redirected to {Location}`이다. 401·403이면 자격 증명 안내를 덧붙인다.
+- 패키지·버전·registration page가 없으면(404) `NuGet '{instance}' package '{id}' was not found.` 등으로 알린다.
+- 시간 제한(읽기·unlist·relist 100초, push 10분): `... timed out after {n}s.` 응답 본문은 50MB까지 받는다.
+- JSON 오류: `... returned invalid JSON: ...`(중복 키 포함), 구조가 다르면 `... returned unexpected JSON: ...`.
 
 ## 빌드·테스트
 

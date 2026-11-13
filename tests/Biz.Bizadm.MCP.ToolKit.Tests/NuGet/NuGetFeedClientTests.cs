@@ -194,7 +194,13 @@ public sealed class NuGetFeedClientTests
         await cancel.CancelAsync();
         await Assert.ThrowsAsync<OperationCanceledException>(() => cancelled);
         gate.SetResult(NuGetRecordingHandler.Response(HttpStatusCode.InternalServerError, "boom"));
-        await Task.Delay(50, TestContext.CancellationToken); // 공유 로드가 실패로 끝나기를 기다린다
+        // 공유 로드가 실패로 끝나기를 기다린다(시간이 아니라 상태로 판정, 최대 10초)
+        using (CancellationTokenSource wait = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken))
+        {
+            wait.CancelAfter(TimeSpan.FromSeconds(10));
+            while (!client.IsIndexLoadFaulted("internal"))
+                await Task.Delay(10, wait.Token);
+        }
 
         Uri search = await client.GetResourceAsync(instance, NuGetResource.Search, TestContext.CancellationToken);
 

@@ -119,6 +119,10 @@ internal sealed class NuGetFeedClient : IDisposable
         }
     }
 
+    /// <summary>테스트용: 캐시된 service index 로드가 실패로 끝났는지</summary>
+    internal bool IsIndexLoadFaulted(string name)
+        => _indexes.TryGetValue(name, out Lazy<Task<NuGetServiceIndex>>? entry) && entry.IsValueCreated && entry.Value.IsFaulted;
+
     // 공유 Task: 호출자 취소를 쓰지 않는다(읽기 시간 제한만)
     private async Task<NuGetServiceIndex> LoadIndexAsync(NuGetInstance instance)
     {

@@ -554,6 +554,8 @@ public async Task<string> PushPackage(string? instance = null, string? path = nu
 
 **선행 단위**: 단위 2
 
+**4차 검토 반영(구현 시)**: 패키지 250MB·`.nuspec` 1MB 상한과 오류 문구는 설계 `nuget_push_package` 세부 규칙을 따른다. 409 메시지는 보간 구멍 안의 조건식을 지역 변수(`why`, 사유가 없으면 `Conflict`)로 뺀다(CS8361 방지).
+
 ## 단위 6. unlist·relist
 
 **대상**: `NuGetTools.UnlistPackage`, `NuGetTools.RelistPackage`

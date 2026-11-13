@@ -42,7 +42,21 @@ internal static class NuGetPackageFile
                 throw new McpException($"package file was not found: {path}");
             if (file.Length > MaxPackageBytes)
                 throw new McpException($"package file exceeds {MaxPackageBytes} bytes.");
-            return await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+            // 검사와 읽기 사이에 파일이 커져도 상한을 넘겨 읽지 않는다
+            FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            await using (stream.ConfigureAwait(false))
+            {
+                using MemoryStream buffer = new();
+                byte[] chunk = new byte[81920];
+                int read;
+                while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
+                {
+                    if (buffer.Length + read > MaxPackageBytes)
+                        throw new McpException($"package file exceeds {MaxPackageBytes} bytes.");
+                    buffer.Write(chunk, 0, read);
+                }
+                return buffer.ToArray();
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

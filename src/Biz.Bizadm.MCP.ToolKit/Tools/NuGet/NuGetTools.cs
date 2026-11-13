@@ -17,7 +17,7 @@ namespace Biz.Bizadm.MCP.ToolKit.Tools.NuGet;
 public sealed class NuGetTools
 {
     private const string InstanceDescription = "NuGet 인스턴스 이름(필수). nuget_list_instances로 확인";
-    private const string IdDescription = "패키지 ID(필수, 예: Newtonsoft.Json). 영문·숫자·_와 사이의 . - 만 허용, 최대 100자";
+    private const string IdDescription = "패키지 ID(필수, 예: Newtonsoft.Json). 문자(유니코드 포함)·숫자·_와 그 사이의 . - 만 허용, 최대 100자";
 
     private static readonly Regex PackageId = new(@"^\w+([.-]\w+)*$", RegexOptions.CultureInvariant);
 
