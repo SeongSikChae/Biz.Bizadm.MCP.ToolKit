@@ -100,7 +100,7 @@ phase: 설계
 - `nuget_list_versions`: `{"id","versions":[...]}`
 - `nuget_get_package_metadata`
   - `version` 없음: `{"id","versions":[{"version","listed","published","deprecated","vulnerable"}]}`
-  - `version` 있음: `{"id","version","listed","published","projectUrl","dependencyGroups":[{"targetFramework","dependencies":[{"id","range"}]}],"deprecation":{"reasons","message","alternatePackage":{"id","range"}}|null,"vulnerabilities":[{"severity","advisoryUrl"}]}`
+  - `version` 있음: `{"id","version","listed","published","projectUrl","dependencyGroups":[{"targetFramework","dependencies":[{"id","range"}]}],"deprecated":bool|null,"deprecation":{"reasons","message","alternatePackage":{"id","range"}|null}|null,"vulnerable":bool|null,"vulnerabilities":[{"severity","advisoryUrl"}]|null}` (4차 검토 반영: 상세에도 `deprecated`·`vulnerable`을 넣어 `null`=정보 없음을 구분)
   - `listed`가 없으면 true로 본다
   - `published`가 1900년이면 null로 바꾼다(nuget.org는 unlisted 버전을 1900년으로 둔다, 사용자 결정)
   - `vulnerabilities[].severity`는 피드 값 `"0"`~`"3"`을 `low`·`moderate`·`high`·`critical`로 바꾸고, 그 밖의 값은 원문 그대로, 없으면 null로 둔다

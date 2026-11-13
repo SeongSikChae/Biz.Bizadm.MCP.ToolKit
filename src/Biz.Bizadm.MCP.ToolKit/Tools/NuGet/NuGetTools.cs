@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -117,6 +118,203 @@ public sealed class NuGetTools
             .Select(v => v.Text)
             .Concat(versions.Where(v => v.Parsed is null).Select(v => v.Text)); // 파싱 불가 원문은 끝에
         return new JsonObject { ["id"] = packageId, ["versions"] = new JsonArray([.. ordered.Select(v => (JsonNode)v)]) }.ToJsonString();
+    }
+
+    /// <summary>패키지 메타데이터를 조회한다.</summary>
+    [McpServerTool(Name = "nuget_get_package_metadata", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = true)]
+    [Description("지정한 NuGet 피드의 registration에서 패키지 메타데이터를 조회한다. version이 없으면 {id, versions[{version, listed, published, deprecated, vulnerable}]} 요약, "
+        + "있으면 그 버전의 {id, version, listed, published, projectUrl, dependencyGroups, deprecated, deprecation, vulnerable, vulnerabilities} 상세를 반환한다. "
+        + "deprecated·vulnerable·vulnerabilities가 null이면 피드가 취약점·deprecation 정보를 주지 않는다는 뜻이다(사설 피드). "
+        + "RegistrationsBaseUrl/3.6.0이 없는 피드는 SemVer 2.0.0 버전이 빠질 수 있다.")]
+    public async Task<string> GetPackageMetadata(
+        [Description(InstanceDescription)] string? instance = null,
+        [Description(IdDescription)] string? id = null,
+        [Description("버전(선택, 예: 1.2.3). 없으면 전체 버전 요약")] string? version = null,
+        CancellationToken cancellationToken = default)
+    {
+        NuGetInstance target = _client.Resolve(instance);
+        string packageId = RequireId(id);
+        string? normalized = string.IsNullOrWhiteSpace(version) ? null : RequireVersion(version);
+        (List<JsonObject> entries, Uri indexUri) = await ReadCatalogEntriesAsync(target, packageId, cancellationToken).ConfigureAwait(false);
+        bool provides = await _client.ProvidesVulnerabilityInfoAsync(target, cancellationToken).ConfigureAwait(false);
+
+        if (normalized is null)
+        {
+            JsonArray versions = [];
+            foreach (JsonObject entry in entries)
+            {
+                Safety safety = SafetyOf(entry, provides);
+                versions.Add(new JsonObject
+                {
+                    ["version"] = Required(target, indexUri, entry, "version"),
+                    ["listed"] = Json.Bool(Json.Prop(entry, "listed")) ?? true,
+                    ["published"] = Published(entry),
+                    ["deprecated"] = safety.Deprecated,
+                    ["vulnerable"] = safety.Vulnerable,
+                });
+            }
+            return new JsonObject { ["id"] = packageId, ["versions"] = versions }.ToJsonString();
+        }
+
+        JsonObject found = Find(target, indexUri, entries, packageId, normalized);
+        return Detail(target, indexUri, packageId, found, provides).ToJsonString();
+    }
+
+    /// <summary>특정 버전의 취약점·deprecation을 확인한다.</summary>
+    [McpServerTool(Name = "nuget_check_vulnerabilities", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = true)]
+    [Description("지정한 NuGet 피드의 registration 정보로 특정 버전의 알려진 취약점과 deprecation을 확인하고 {id, version, vulnerable, vulnerabilities[{severity, advisoryUrl}], deprecated}를 반환한다. "
+        + "severity는 low·moderate·high·critical이다. 값이 null이면 피드가 취약점·deprecation 정보를 주지 않는다는 뜻이다(사설 피드).")]
+    public async Task<string> CheckVulnerabilities(
+        [Description(InstanceDescription)] string? instance = null,
+        [Description(IdDescription)] string? id = null,
+        [Description("버전(필수, 예: 1.2.3)")] string? version = null,
+        CancellationToken cancellationToken = default)
+    {
+        NuGetInstance target = _client.Resolve(instance);
+        string packageId = RequireId(id);
+        string normalized = RequireVersion(version);
+        (List<JsonObject> entries, Uri indexUri) = await ReadCatalogEntriesAsync(target, packageId, cancellationToken).ConfigureAwait(false);
+        bool provides = await _client.ProvidesVulnerabilityInfoAsync(target, cancellationToken).ConfigureAwait(false);
+
+        JsonObject found = Find(target, indexUri, entries, packageId, normalized);
+        Safety safety = SafetyOf(found, provides);
+        return new JsonObject
+        {
+            ["id"] = packageId,
+            ["version"] = normalized,
+            ["vulnerable"] = safety.Vulnerable,
+            ["vulnerabilities"] = safety.Vulnerabilities,
+            ["deprecated"] = safety.Deprecated,
+        }.ToJsonString();
+    }
+
+    // registration index → page(items 없으면 page @id GET) → leaf.catalogEntry
+    private async Task<(List<JsonObject> Entries, Uri IndexUri)> ReadCatalogEntriesAsync(NuGetInstance target, string id, CancellationToken cancellationToken)
+    {
+        Uri reg = await _client.GetResourceAsync(target, NuGetResource.Registrations, cancellationToken).ConfigureAwait(false);
+        Uri indexUri = NuGetFeedClient.Child(reg, $"{Uri.EscapeDataString(id.ToLowerInvariant())}/index.json");
+        JsonNode index = await _client.GetJsonAsync(target, indexUri, cancellationToken).ConfigureAwait(false)
+            ?? throw new McpException($"NuGet '{target.Name}' package '{id}' was not found.");
+        if (Json.Prop(index, "items") is not JsonArray pages)
+            throw NuGetFeedClient.Unexpected(target, indexUri, "items array is missing");
+
+        List<JsonObject> entries = [];
+        foreach (JsonNode? page in pages)
+        {
+            if (page is not JsonObject)
+                throw NuGetFeedClient.Unexpected(target, indexUri, "registration page must be an object");
+            Uri source = indexUri;
+            if (Json.Prop(page, "items") is not JsonArray items)
+            {
+                if (!Uri.TryCreate(Json.String(Json.Prop(page, "@id")), UriKind.Absolute, out Uri? pageUri) || pageUri.Scheme is not ("http" or "https"))
+                    throw NuGetFeedClient.Unexpected(target, indexUri, "registration page @id is missing or not an absolute http(s) URI");
+                JsonNode pageRoot = await _client.GetJsonAsync(target, pageUri, cancellationToken).ConfigureAwait(false)
+                    ?? throw new McpException($"NuGet '{target.Name}' registration page for '{id}' was not found.");
+                items = Json.Prop(pageRoot, "items") as JsonArray ?? throw NuGetFeedClient.Unexpected(target, pageUri, "items array is missing");
+                source = pageUri;
+            }
+            foreach (JsonNode? leaf in items)
+                entries.Add(Json.Prop(leaf, "catalogEntry") as JsonObject ?? throw NuGetFeedClient.Unexpected(target, source, "catalogEntry is missing"));
+        }
+        return (entries, indexUri);
+    }
+
+    // catalogEntry.version은 필수. 파싱 불가 값은 비교에서 제외
+    private static JsonObject Find(NuGetInstance target, Uri indexUri, List<JsonObject> entries, string id, string normalized)
+    {
+        foreach (JsonObject entry in entries)
+        {
+            string raw = Required(target, indexUri, entry, "version");
+            if (NuGetVersion.TryParse(raw, out NuGetVersion? v) && v.ToNormalizedString().Equals(normalized, StringComparison.OrdinalIgnoreCase))
+                return entry;
+        }
+        throw new McpException($"NuGet '{target.Name}' package '{id}' version '{normalized}' was not found.");
+    }
+
+    // 결과 노드는 모두 새로 만든다(피드 노드를 옮기지 않음)
+    private static JsonObject Detail(NuGetInstance target, Uri indexUri, string id, JsonObject entry, bool provides)
+    {
+        Safety safety = SafetyOf(entry, provides);
+        JsonArray groups = [];
+        if (Json.Prop(entry, "dependencyGroups") is JsonArray dependencyGroups)
+        {
+            foreach (JsonNode? group in dependencyGroups)
+            {
+                JsonArray dependencies = [];
+                if (Json.Prop(group, "dependencies") is JsonArray deps)
+                    foreach (JsonNode? dep in deps)
+                        dependencies.Add(new JsonObject { ["id"] = Json.String(Json.Prop(dep, "id")), ["range"] = Json.String(Json.Prop(dep, "range")) });
+                groups.Add(new JsonObject { ["targetFramework"] = Json.String(Json.Prop(group, "targetFramework")), ["dependencies"] = dependencies });
+            }
+        }
+
+        JsonObject? deprecation = null;
+        if (Json.Prop(entry, "deprecation") is JsonObject dep2)
+        {
+            JsonArray reasons = [];
+            if (Json.Prop(dep2, "reasons") is JsonArray rs)
+                foreach (JsonNode? r in rs)
+                    if (Json.String(r) is { } reason)
+                        reasons.Add(reason);
+            JsonNode? alt = Json.Prop(dep2, "alternatePackage");
+            deprecation = new JsonObject
+            {
+                ["reasons"] = reasons,
+                ["message"] = Json.String(Json.Prop(dep2, "message")),
+                ["alternatePackage"] = alt is JsonObject ? new JsonObject { ["id"] = Json.String(Json.Prop(alt, "id")), ["range"] = Json.String(Json.Prop(alt, "range")) } : null,
+            };
+        }
+
+        string raw = Required(target, indexUri, entry, "version");
+        return new JsonObject
+        {
+            ["id"] = id,
+            ["version"] = NuGetVersion.TryParse(raw, out NuGetVersion? v) ? v.ToNormalizedString() : raw,
+            ["listed"] = Json.Bool(Json.Prop(entry, "listed")) ?? true,
+            ["published"] = Published(entry),
+            ["projectUrl"] = Json.String(Json.Prop(entry, "projectUrl")),
+            ["dependencyGroups"] = groups,
+            ["deprecated"] = safety.Deprecated,
+            ["deprecation"] = deprecation,
+            ["vulnerable"] = safety.Vulnerable,
+            ["vulnerabilities"] = safety.Vulnerabilities,
+        };
+    }
+
+    private sealed record Safety(bool? Deprecated, bool? Vulnerable, JsonArray? Vulnerabilities);
+
+    // 정보 제공 피드(VulnerabilityInfo 리소스)는 필드가 없으면 false·빈 배열, 그 밖은 null(정보 없음)
+    private static Safety SafetyOf(JsonObject entry, bool provides)
+    {
+        JsonArray? vulnerabilities = null;
+        if (Json.Prop(entry, "vulnerabilities") is JsonArray va)
+        {
+            vulnerabilities = [];
+            foreach (JsonNode? x in va)
+                vulnerabilities.Add(new JsonObject { ["severity"] = Severity(Json.String(Json.Prop(x, "severity"))), ["advisoryUrl"] = Json.String(Json.Prop(x, "advisoryUrl")) });
+        }
+        else if (provides)
+        {
+            vulnerabilities = [];
+        }
+        bool? deprecated = Json.Prop(entry, "deprecation") is JsonObject ? true : provides ? false : null;
+        return new Safety(deprecated, vulnerabilities is null ? null : vulnerabilities.Count > 0, vulnerabilities);
+    }
+
+    internal static string? Severity(string? raw) => raw switch
+    {
+        "0" => "low",
+        "1" => "moderate",
+        "2" => "high",
+        "3" => "critical",
+        _ => raw,
+    };
+
+    // nuget.org는 unlisted 버전의 published를 1900년으로 둔다
+    private static string? Published(JsonObject entry)
+    {
+        string? raw = Json.String(Json.Prop(entry, "published"));
+        return raw is not null && DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset p) && p.Year == 1900 ? null : raw;
     }
 
     /// <summary>패키지 ID 인자를 검사한다(NuGet ID 규칙, 최대 100자).</summary>
