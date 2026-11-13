@@ -193,31 +193,49 @@ public sealed class NuGetTools
     [McpServerTool(Name = "nuget_push_package", ReadOnly = false, Idempotent = false, Destructive = false, OpenWorld = true)]
     [Description("지정한 NuGet 피드에 .nupkg를 올리고 {pushed{id, version}, skipped}를 반환한다. path(MCP 서버 호스트의 절대 로컬 경로, UNC·장치 경로 불가)와 contentBase64 중 정확히 하나를 준다. "
         + "패키지 상한은 250MB, .snupkg는 지원하지 않는다. 이미 있으면 HTTP 409 오류이며 skipDuplicate=true면 skipped=true로 성공 처리한다. 인스턴스에 ApiKey가 필요하다.")]
-    public async Task<string> PushPackage(
+    public Task<string> PushPackage(
         [Description(InstanceDescription)] string? instance = null,
         [Description("MCP 서버 호스트의 .nupkg 절대 경로(path·contentBase64 중 하나)")] string? path = null,
         [Description(".nupkg 내용 Base64(path·contentBase64 중 하나)")] string? contentBase64 = null,
         [Description("이미 있는 버전(HTTP 409)을 성공으로 볼지 여부(기본 false)")] bool skipDuplicate = false,
         CancellationToken cancellationToken = default)
+        => PushAsync(instance, path, contentBase64, skipDuplicate, symbols: false, cancellationToken);
+
+    /// <summary>심볼 패키지를 올린다.</summary>
+    [McpServerTool(Name = "nuget_push_symbol_package", ReadOnly = false, Idempotent = false, Destructive = false, OpenWorld = true)]
+    [Description("지정한 NuGet 피드의 심볼 리소스(SymbolPackagePublish/4.9.0)에 .snupkg를 올리고 {pushed{id, version}, skipped}를 반환한다. path(MCP 서버 호스트의 절대 로컬 경로, UNC·장치 경로 불가)와 contentBase64 중 정확히 하나를 준다. "
+        + "패키지 상한은 250MB이고 .nuspec에 SymbolsPackage packageType이 있어야 한다. 대응하는 .nupkg를 먼저 올린다. 같은 버전은 다시 올릴 수 있고, HTTP 409(이전 심볼이 아직 사용 가능하지 않음)는 오류이며 skipDuplicate=true면 skipped=true로 성공 처리한다. "
+        + "피드에 심볼 리소스가 없으면 오류다. 인스턴스에 ApiKey가 필요하다.")]
+    public Task<string> PushSymbolPackage(
+        [Description(InstanceDescription)] string? instance = null,
+        [Description("MCP 서버 호스트의 .snupkg 절대 경로(path·contentBase64 중 하나)")] string? path = null,
+        [Description(".snupkg 내용 Base64(path·contentBase64 중 하나)")] string? contentBase64 = null,
+        [Description("HTTP 409(이전 심볼 검증 중)를 성공으로 볼지 여부(기본 false)")] bool skipDuplicate = false,
+        CancellationToken cancellationToken = default)
+        => PushAsync(instance, path, contentBase64, skipDuplicate, symbols: true, cancellationToken);
+
+    private async Task<string> PushAsync(string? instance, string? path, string? contentBase64, bool skipDuplicate, bool symbols, CancellationToken cancellationToken)
     {
         NuGetInstance target = RequireWritable(instance);
         if (string.IsNullOrWhiteSpace(path) == string.IsNullOrWhiteSpace(contentBase64))
             throw new McpException("Specify exactly one of path or contentBase64.");
         byte[] bytes = !string.IsNullOrWhiteSpace(path)
-            ? await NuGetPackageFile.ReadAsync(path.Trim(), cancellationToken).ConfigureAwait(false)
+            ? await NuGetPackageFile.ReadAsync(path.Trim(), cancellationToken, symbols).ConfigureAwait(false)
             : NuGetPackageFile.Decode(contentBase64!);
-        (string id, string version) = NuGetPackageFile.ReadIdentity(bytes);
+        (string id, string version) = NuGetPackageFile.ReadIdentity(bytes, symbols);
 
-        Uri publish = await _client.GetResourceAsync(target, NuGetResource.Publish, cancellationToken).ConfigureAwait(false);
+        Uri publish = await _client.GetResourceAsync(target, symbols ? NuGetResource.SymbolPublish : NuGetResource.Publish, cancellationToken).ConfigureAwait(false);
         using MultipartFormDataContent form = new();
         ByteArrayContent file = new(bytes);
         file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        form.Add(file, "package", "package.nupkg");
+        form.Add(file, "package", symbols ? "package.snupkg" : "package.nupkg");
         (int status, string body, string? reason) = await _client.SendPublishAsync(target, HttpMethod.Put, publish, form, cancellationToken).ConfigureAwait(false);
         if (status == 409 && !skipDuplicate)
         {
             string why = NuGetFeedClient.Summarize(body) is { Length: > 0 } s ? s : reason ?? "Conflict";
-            throw new McpException($"NuGet '{target.Name}' package '{id}' {version} already exists (HTTP 409): {why}. Use skipDuplicate to ignore.");
+            throw new McpException(symbols
+                ? $"NuGet '{target.Name}' symbol package '{id}' {version} was pushed but is not available yet (HTTP 409): {why}. Use skipDuplicate to ignore."
+                : $"NuGet '{target.Name}' package '{id}' {version} already exists (HTTP 409): {why}. Use skipDuplicate to ignore.");
         }
         return new JsonObject
         {

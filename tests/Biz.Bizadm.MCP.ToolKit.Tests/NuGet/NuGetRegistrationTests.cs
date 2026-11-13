@@ -34,7 +34,7 @@ public sealed class NuGetRegistrationTests
         => Assert.ThrowsExactly<ArgumentException>(() => CreateServices(configure));
 
     [TestMethod]
-    public void WithNuGetTools_RegistersEightToolsWithAnnotations()
+    public void WithNuGetTools_RegistersNineToolsWithAnnotations()
     {
         using ServiceProvider provider = CreateServices(o => o.Instances.Add(Instance())).BuildServiceProvider();
         Dictionary<string, McpServerTool> tools = provider.GetServices<McpServerTool>().ToDictionary(t => t.ProtocolTool.Name);
@@ -42,7 +42,7 @@ public sealed class NuGetRegistrationTests
         CollectionAssert.AreEqual(new[]
         {
             "nuget_check_vulnerabilities", "nuget_get_package_metadata", "nuget_list_instances", "nuget_list_versions",
-            "nuget_push_package", "nuget_relist_package", "nuget_search_packages", "nuget_unlist_package",
+            "nuget_push_package", "nuget_push_symbol_package", "nuget_relist_package", "nuget_search_packages", "nuget_unlist_package",
         }, tools.Keys.Order(StringComparer.Ordinal).ToArray());
 
         Assert.IsFalse(tools["nuget_list_instances"].ProtocolTool.Annotations!.OpenWorldHint);
@@ -51,7 +51,7 @@ public sealed class NuGetRegistrationTests
             Assert.IsTrue(tools[name].ProtocolTool.Annotations!.ReadOnlyHint, name);
             Assert.IsFalse(tools[name].ProtocolTool.Annotations!.DestructiveHint, name);
         }
-        foreach (string name in new[] { "nuget_push_package", "nuget_unlist_package", "nuget_relist_package" })
+        foreach (string name in new[] { "nuget_push_package", "nuget_push_symbol_package", "nuget_unlist_package", "nuget_relist_package" })
         {
             Assert.IsFalse(tools[name].ProtocolTool.Annotations!.ReadOnlyHint, name);
             Assert.IsTrue(tools[name].ProtocolTool.Annotations!.OpenWorldHint, name);
@@ -59,6 +59,8 @@ public sealed class NuGetRegistrationTests
         Assert.IsTrue(tools["nuget_unlist_package"].ProtocolTool.Annotations!.DestructiveHint);
         Assert.IsFalse(tools["nuget_push_package"].ProtocolTool.Annotations!.DestructiveHint);
         Assert.IsFalse(tools["nuget_push_package"].ProtocolTool.Annotations!.IdempotentHint);
+        Assert.IsFalse(tools["nuget_push_symbol_package"].ProtocolTool.Annotations!.DestructiveHint);
+        Assert.IsFalse(tools["nuget_push_symbol_package"].ProtocolTool.Annotations!.IdempotentHint);
         Assert.IsFalse(tools["nuget_relist_package"].ProtocolTool.Annotations!.DestructiveHint);
         StringAssert.Contains(tools["nuget_unlist_package"].ProtocolTool.Description, "일부 사설 피드(BaGet, Nexus 설정 등)는 버전을 실제로 삭제할 수 있다");
         StringAssert.Contains(tools["nuget_list_versions"].ProtocolTool.Description, "unlisted 버전도 포함");

@@ -97,6 +97,96 @@ public sealed class NuGetToolsWriteTests
         Assert.HasCount(0, handler.Requests);
     }
 
+    private const string Symbols = "https://pkgs.example.com/api/v2/symbolpackage";
+
+    private static (NuGetTools, NuGetRecordingHandler, NuGetFeedClient) CreateWithSymbols() => NuGetToolsReadTests.Create(NuGetFeedClientTests.Index(
+        ("PackagePublish/2.0.0", Publish),
+        ("SymbolPackagePublish/4.9.0", Symbols)));
+
+    private static string SymbolsBase64() => Convert.ToBase64String(NuGetPackageFileTests.Package(NuGetPackageFileTests.SymbolsNuspec));
+
+    [TestMethod]
+    public async Task PushSymbol_Base64_SendsToSymbolResourceWithApiKey()
+    {
+        (NuGetTools tools, NuGetRecordingHandler handler, NuGetFeedClient client) = CreateWithSymbols();
+        using NuGetFeedClient _ = client;
+        handler.Enqueue(HttpStatusCode.Created, "");
+
+        string result = await tools.PushSymbolPackage("internal", contentBase64: SymbolsBase64(), cancellationToken: TestContext.CancellationToken);
+
+        Assert.AreEqual("""{"pushed":{"id":"My.Pkg","version":"1.0.0"},"skipped":false}""", result);
+        Assert.AreEqual(HttpMethod.Put, handler.Last.Method);
+        Assert.AreEqual(Symbols, handler.Last.Uri.AbsoluteUri);
+        Assert.AreEqual(NuGetFeedClientTests.ApiKey, handler.Last.Headers["X-NuGet-ApiKey"]);
+        StringAssert.StartsWith(handler.Last.Headers["Content-Type"], "multipart/form-data");
+        StringAssert.Matches(handler.Last.Body!, new System.Text.RegularExpressions.Regex("name=\"?package\"?; filename=\"?package.snupkg\"?"));
+    }
+
+    [TestMethod]
+    public async Task PushSymbol_Path_Accepted202()
+    {
+        (NuGetTools tools, NuGetRecordingHandler handler, NuGetFeedClient client) = CreateWithSymbols();
+        using NuGetFeedClient _ = client;
+        handler.Enqueue(HttpStatusCode.Accepted, "");
+        string file = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".snupkg");
+        await File.WriteAllBytesAsync(file, NuGetPackageFileTests.Package(NuGetPackageFileTests.SymbolsNuspec), TestContext.CancellationToken);
+        try
+        {
+            string result = await tools.PushSymbolPackage("internal", path: file, cancellationToken: TestContext.CancellationToken);
+            Assert.AreEqual("""{"pushed":{"id":"My.Pkg","version":"1.0.0"},"skipped":false}""", result);
+            Assert.AreEqual(Symbols, handler.Last.Uri.AbsoluteUri);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [TestMethod]
+    public async Task PushSymbol_Conflict_FailsWithReason_OrSkips()
+    {
+        (NuGetTools tools, NuGetRecordingHandler handler, NuGetFeedClient client) = CreateWithSymbols();
+        using NuGetFeedClient _ = client;
+        handler.Enqueue(HttpStatusCode.Conflict, "", "text/plain", r => r.ReasonPhrase = "Symbol package is being validated");
+        handler.Enqueue(HttpStatusCode.Conflict, "");
+
+        McpException ex = await Assert.ThrowsExactlyAsync<McpException>(() => tools.PushSymbolPackage("internal", contentBase64: SymbolsBase64(), cancellationToken: TestContext.CancellationToken));
+        string skipped = await tools.PushSymbolPackage("internal", contentBase64: SymbolsBase64(), skipDuplicate: true, cancellationToken: TestContext.CancellationToken);
+
+        Assert.AreEqual("NuGet 'internal' symbol package 'My.Pkg' 1.0.0 was pushed but is not available yet (HTTP 409): Symbol package is being validated. Use skipDuplicate to ignore.", ex.Message);
+        Assert.AreEqual("""{"pushed":{"id":"My.Pkg","version":"1.0.0"},"skipped":true}""", skipped);
+    }
+
+    [TestMethod]
+    public async Task PushSymbol_FeedWithoutSymbolResource_Fails()
+    {
+        (NuGetTools tools, NuGetRecordingHandler handler, NuGetFeedClient client) = Create();
+        using NuGetFeedClient _ = client;
+
+        McpException ex = await Assert.ThrowsExactlyAsync<McpException>(() => tools.PushSymbolPackage("internal", contentBase64: SymbolsBase64(), cancellationToken: TestContext.CancellationToken));
+
+        Assert.AreEqual("NuGet 'internal' service index has no symbol publish resource (SymbolPackagePublish/4.9.0).", ex.Message);
+        Assert.HasCount(1, handler.Requests);
+    }
+
+    [TestMethod]
+    public async Task PushSymbol_InvalidInput_NoRequest()
+    {
+        (NuGetTools tools, NuGetRecordingHandler handler, NuGetFeedClient client) = CreateWithSymbols();
+        using NuGetFeedClient _ = client;
+        string root = OperatingSystem.IsWindows() ? @"C:\" : "/";
+
+        Assert.AreEqual(".nuspec has no SymbolsPackage packageType; use nuget_push_package for .nupkg.", (await Assert.ThrowsExactlyAsync<McpException>(() =>
+            tools.PushSymbolPackage("internal", contentBase64: Convert.ToBase64String(NuGetPackageFileTests.Package()), cancellationToken: TestContext.CancellationToken))).Message);
+        Assert.AreEqual("path must be a .snupkg file.", (await Assert.ThrowsExactlyAsync<McpException>(() =>
+            tools.PushSymbolPackage("internal", path: root + "a.nupkg", cancellationToken: TestContext.CancellationToken))).Message);
+        Assert.AreEqual("Specify exactly one of path or contentBase64.", (await Assert.ThrowsExactlyAsync<McpException>(() =>
+            tools.PushSymbolPackage("internal", cancellationToken: TestContext.CancellationToken))).Message);
+        StringAssert.StartsWith((await Assert.ThrowsExactlyAsync<McpException>(() =>
+            tools.PushSymbolPackage("internal", contentBase64: "AQID", cancellationToken: TestContext.CancellationToken))).Message, "package is not a valid .snupkg (zip): ");
+        Assert.HasCount(0, handler.Requests);
+    }
+
     [TestMethod]
     public async Task WriteTools_NoApiKey_NoRequest()
     {
@@ -105,6 +195,7 @@ public sealed class NuGetToolsWriteTests
         const string message = "NuGet 'org' has no ApiKey; write tools are unavailable.";
 
         Assert.AreEqual(message, (await Assert.ThrowsExactlyAsync<McpException>(() => tools.PushPackage("org", contentBase64: "AQID", cancellationToken: TestContext.CancellationToken))).Message);
+        Assert.AreEqual(message, (await Assert.ThrowsExactlyAsync<McpException>(() => tools.PushSymbolPackage("org", contentBase64: "AQID", cancellationToken: TestContext.CancellationToken))).Message);
         Assert.AreEqual(message, (await Assert.ThrowsExactlyAsync<McpException>(() => tools.UnlistPackage("org", "A", "1.0.0", TestContext.CancellationToken))).Message);
         Assert.AreEqual(message, (await Assert.ThrowsExactlyAsync<McpException>(() => tools.RelistPackage("org", "A", "1.0.0", TestContext.CancellationToken))).Message);
         Assert.HasCount(0, handler.Requests);
