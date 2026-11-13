@@ -12,7 +12,7 @@ namespace Biz.Bizadm.MCP.ToolKit.NuGet;
 
 /// <summary>등록한 NuGet 피드의 NuGet Server API v3를 호출한다.</summary>
 /// <remarks>
-/// Basic은 ServiceIndex와 같은 origin 요청에만, ApiKey는 PackagePublish 요청에만 붙인다. 자동 리다이렉트는 따라가지 않는다.
+/// Basic은 ServiceIndex와 같은 origin 요청에만, ApiKey는 PackagePublish·SymbolPackagePublish 요청에만 붙인다. 자동 리다이렉트는 따라가지 않는다.
 /// 오류는 자격 증명 없이 인스턴스 이름·메서드·URL(사용자 정보·query 제외)·HTTP 상태를 담은 <see cref="McpException"/>으로 던진다.
 /// </remarks>
 internal sealed class NuGetFeedClient : IDisposable
@@ -79,15 +79,16 @@ internal sealed class NuGetFeedClient : IDisposable
     }
 
     /// <summary>용도에 맞는 리소스 주소. service index는 인스턴스마다 캐시한다.</summary>
-    /// <exception cref="McpException">리소스 없음, https 인스턴스의 http publish 주소, 경로 결합 리소스의 query·fragment</exception>
+    /// <exception cref="McpException">리소스 없음, https 인스턴스의 http publish·symbol publish 주소, 경로 결합 리소스의 query·fragment</exception>
     public async Task<Uri> GetResourceAsync(NuGetInstance instance, NuGetResource resource, CancellationToken cancellationToken)
     {
         NuGetServiceIndex index = await GetIndexAsync(instance, cancellationToken).ConfigureAwait(false);
         Uri uri = index.Find(resource) ?? throw new McpException($"NuGet '{instance.Name}' service index has no "
             + $"{NuGetServiceIndex.NameOf(resource)} resource ({string.Join(", ", NuGetServiceIndex.TypesOf(resource))}).");
-        // scheme 하향 방지: https 인스턴스가 http publish 주소로 ApiKey를 보내지 않게
-        if (resource == NuGetResource.Publish && _origins[instance.Name].Scheme == Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttps)
-            throw new McpException($"NuGet '{instance.Name}' publish resource is not https; ApiKey would be sent in clear text.");
+        // scheme 하향 방지: https 인스턴스가 http publish·symbol publish 주소로 ApiKey를 보내지 않게
+        if ((resource is NuGetResource.Publish or NuGetResource.SymbolPublish)
+            && _origins[instance.Name].Scheme == Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttps)
+            throw new McpException($"NuGet '{instance.Name}' {NuGetServiceIndex.NameOf(resource)} resource is not https; ApiKey would be sent in clear text.");
         // 경로 결합(Child)을 쓰는 리소스는 query·fragment가 있으면 주소를 만들 수 없다
         if (resource != NuGetResource.Search && (uri.Query.Length > 0 || uri.Fragment.Length > 0))
             throw Unexpected(instance, _origins[instance.Name], $"{NuGetServiceIndex.NameOf(resource)} @id must not contain query or fragment");
@@ -150,7 +151,7 @@ internal sealed class NuGetFeedClient : IDisposable
         }
     }
 
-    /// <summary>PackagePublish 요청(ApiKey 포함). 200·201·202·204·409는 상태·본문·사유를 돌려주고 그 밖은 실패다.</summary>
+    /// <summary>PackagePublish·SymbolPackagePublish 요청(ApiKey 포함). 200·201·202·204·409는 상태·본문·사유를 돌려주고 그 밖은 실패다.</summary>
     public async Task<(int Status, string Body, string? Reason)> SendPublishAsync(NuGetInstance instance, HttpMethod method, Uri uri,
         HttpContent? content, CancellationToken cancellationToken)
     {

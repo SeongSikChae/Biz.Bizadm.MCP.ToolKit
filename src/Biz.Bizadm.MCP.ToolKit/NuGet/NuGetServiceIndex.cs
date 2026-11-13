@@ -10,6 +10,7 @@ internal enum NuGetResource
     PackageBase,
     Registrations,
     Publish,
+    SymbolPublish,
 }
 
 /// <summary>service index의 <c>resources[]</c>에서 용도별 리소스 주소를 고른다.</summary>
@@ -24,6 +25,7 @@ internal sealed class NuGetServiceIndex(IReadOnlyList<(string Type, Uri Id)> res
         [NuGetResource.Registrations] = ("registrations", ["RegistrationsBaseUrl/3.6.0", "RegistrationsBaseUrl/3.4.0",
             "RegistrationsBaseUrl/3.0.0-rc", "RegistrationsBaseUrl/3.0.0-beta", "RegistrationsBaseUrl"]),
         [NuGetResource.Publish] = ("publish", ["PackagePublish/2.0.0"]),
+        [NuGetResource.SymbolPublish] = ("symbol publish", ["SymbolPackagePublish/4.9.0"]),
     };
 
     /// <summary>오류 문구에 쓰는 용도 이름</summary>

@@ -223,6 +223,48 @@ public sealed class NuGetFeedClientTests
     }
 
     [TestMethod]
+    public async Task GetResource_HttpsInstanceWithHttpSymbolPublish_Rejected()
+    {
+        NuGetRecordingHandler handler = new();
+        using NuGetFeedClient client = Create(handler);
+        handler.Enqueue(HttpStatusCode.OK, Index(("SymbolPackagePublish/4.9.0", "http://pkgs.example.com/symbols")));
+
+        McpException ex = await Assert.ThrowsExactlyAsync<McpException>(() =>
+            client.GetResourceAsync(client.Resolve("internal"), NuGetResource.SymbolPublish, TestContext.CancellationToken));
+
+        Assert.AreEqual("NuGet 'internal' symbol publish resource is not https; ApiKey would be sent in clear text.", ex.Message);
+        Assert.HasCount(1, handler.Requests);
+    }
+
+    [TestMethod]
+    public async Task GetResource_SymbolPublish_FoundOrMissing()
+    {
+        NuGetRecordingHandler handler = new();
+        using NuGetFeedClient client = Create(handler);
+        handler.Enqueue(HttpStatusCode.OK, Index(("SymbolPackagePublish/4.9.0", "https://pkgs.example.com/api/v2/symbolpackage")));
+
+        Uri symbols = await client.GetResourceAsync(client.Resolve("internal"), NuGetResource.SymbolPublish, TestContext.CancellationToken);
+        McpException ex = await Assert.ThrowsExactlyAsync<McpException>(() =>
+            client.GetResourceAsync(client.Resolve("internal"), NuGetResource.Publish, TestContext.CancellationToken));
+
+        Assert.AreEqual("https://pkgs.example.com/api/v2/symbolpackage", symbols.AbsoluteUri);
+        Assert.AreEqual("NuGet 'internal' service index has no publish resource (PackagePublish/2.0.0).", ex.Message);
+    }
+
+    [TestMethod]
+    public async Task GetResource_NoSymbolPublish_Fails()
+    {
+        NuGetRecordingHandler handler = new();
+        using NuGetFeedClient client = Create(handler);
+        handler.Enqueue(HttpStatusCode.OK, Index());
+
+        McpException ex = await Assert.ThrowsExactlyAsync<McpException>(() =>
+            client.GetResourceAsync(client.Resolve("internal"), NuGetResource.SymbolPublish, TestContext.CancellationToken));
+
+        Assert.AreEqual("NuGet 'internal' service index has no symbol publish resource (SymbolPackagePublish/4.9.0).", ex.Message);
+    }
+
+    [TestMethod]
     public async Task GetResource_HttpInstanceWithHttpPublish_Allowed()
     {
         NuGetRecordingHandler handler = new();
