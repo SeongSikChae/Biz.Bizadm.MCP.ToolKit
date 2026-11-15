@@ -112,7 +112,7 @@ builder.Services.AddMcpServer()
 
 ### GitHub Tool 등록
 
-GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다. GitHub MCP Server가 노출하지 않는 태그·ref 쓰기와 릴리스 쓰기는 GitHub REST API를 직접 부르는 Tool(태그·ref 4개, 릴리스 5개)로 함께 등록됩니다.
+GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다. GitHub MCP Server가 노출하지 않는 태그·ref 쓰기, 릴리스 쓰기, rate limit 조회는 GitHub REST API를 직접 부르는 Tool(태그·ref 4개, 릴리스 5개, rate limit 1개)로 함께 등록됩니다.
 
 ```csharp
 using Biz.Bizadm.MCP.ToolKit.GitHub;
@@ -202,6 +202,7 @@ builder.Services.AddMcpServer()
 | GitHub MCP 중계 | `Tools.GitHub.GitHubTools` | `WithGitHubTools(...)` | 3 |
 | GitHub 태그·ref (REST) | `Tools.GitHub.GitHubRefTools` | `WithGitHubTools(...)` | 4 |
 | GitHub 릴리스 (REST) | `Tools.GitHub.GitHubReleaseTools` | `WithGitHubTools(...)` | 5 |
+| GitHub rate limit (REST) | `Tools.GitHub.GitHubRateLimitTools` | `WithGitHubTools(...)` | 1 |
 | NuGet 피드 (REST) | `Tools.NuGet.NuGetTools` | `WithNuGetTools(...)` | 8 |
 
 각 Tool 명세의 표기:
@@ -1924,6 +1925,18 @@ GitHub MCP Server가 노출하지 않는 릴리스 쓰기를 GitHub REST API로 
 - `tagName`의 태그가 없으면 GitHub가 `targetCommitish` 기준으로 만든다(초안은 공개할 때). 릴리스를 지워도 태그는 남으며 `github_delete_ref`로 지운다.
 - asset 내용은 base64로 주며 디코딩 후 10 MiB(10,485,760 바이트)까지다. MCP 요청은 약 1.33배가 되므로 서버·프록시의 요청 본문 한도도 확인한다.
 - 업로드 주소는 릴리스 응답의 `upload_url`을 쓴다. Token을 실어 보내므로 scheme·host·port가 `ApiEndpoint`와 같아야 하며(github.com은 `uploads.github.com` 허용), 아니면 요청 전 오류다.
+- 오류 형식·Token 비노출·재시도 없음은 태그·ref Tool과 같다.
+
+### GitHub rate limit (REST) — `Tools.GitHub.GitHubRateLimitTools`
+
+GitHub MCP Server가 노출하지 않는 rate limit 조회를 GitHub REST API로 직접 처리한다.
+
+| Tool | 파라미터 | REST | 힌트 | 반환 |
+| --- | --- | --- | --- | --- |
+| `github_get_rate_limit` | `instance`(필수) | `GET rate_limit` | 읽기 전용 · 멱등 · 외부 접근 | GitHub rate limit 응답 그대로 |
+
+- 인스턴스 Token 사용자의 한도다. `resources`(core, search, graphql 등)별 `limit`·`used`·`remaining`·`reset`(UTC epoch 초)을 담는다. 이 호출은 기본 한도에 포함되지 않아 한도를 넘긴 뒤에도 쓸 수 있다.
+- GitHub Enterprise Server에서 rate limit이 꺼져 있으면 `HTTP 404` 오류가 날 수 있다.
 - 오류 형식·Token 비노출·재시도 없음은 태그·ref Tool과 같다.
 
 ### NuGet 피드 (REST) — `Tools.NuGet.NuGetTools`
