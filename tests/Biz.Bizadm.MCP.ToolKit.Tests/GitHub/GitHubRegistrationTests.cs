@@ -38,7 +38,7 @@ public sealed class GitHubRegistrationTests
         CollectionAssert.AreEqual(new[]
         {
             "github_call_tool", "github_create_annotated_tag", "github_create_lightweight_tag", "github_create_release",
-            "github_delete_ref", "github_delete_release", "github_delete_release_asset",
+            "github_delete_ref", "github_delete_release", "github_delete_release_asset", "github_get_rate_limit",
             "github_list_instances", "github_list_tools", "github_update_ref", "github_update_release", "github_upload_release_asset",
         }, names);
     }
@@ -64,6 +64,20 @@ public sealed class GitHubRegistrationTests
         foreach (string p in new[] { "instance", "owner", "repo", "releaseId", "tag", "tagName", "targetCommitish", "name", "body", "draft", "prerelease" })
             Assert.IsTrue(props.TryGetProperty(p, out _), p);
         Assert.IsTrue(tools["github_delete_release_asset"].ProtocolTool.InputSchema.GetProperty("properties").TryGetProperty("assetId", out _));
+    }
+
+    [TestMethod]
+    public void WithGitHubTools_RateLimitToolAnnotationsAndSchemaMatchDesign()
+    {
+        using ServiceProvider provider = CreateServices(o => o.Instances.Add(Instance())).BuildServiceProvider();
+        McpServerTool tool = provider.GetServices<McpServerTool>().Single(t => t.ProtocolTool.Name == "github_get_rate_limit");
+        ToolAnnotations a = tool.ProtocolTool.Annotations!;
+
+        Assert.IsTrue(a.ReadOnlyHint);
+        Assert.IsTrue(a.IdempotentHint);
+        Assert.IsFalse(a.DestructiveHint);
+        Assert.IsTrue(a.OpenWorldHint);
+        Assert.IsTrue(tool.ProtocolTool.InputSchema.GetProperty("properties").TryGetProperty("instance", out _));
     }
 
     [TestMethod]
