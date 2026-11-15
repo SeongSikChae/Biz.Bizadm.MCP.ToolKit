@@ -47,6 +47,46 @@ public sealed class GitHubRestClientTests
     }
 
     [TestMethod]
+    public async Task GetRateLimit_GetsRateLimitWithHeadersAndReturnsBody()
+    {
+        const string Body = """{"resources":{"core":{"limit":5000,"used":1,"remaining":4999,"reset":1700000000}},"rate":{"limit":5000}}""";
+        GitHubRecordingHandler handler = new();
+        handler.Enqueue(HttpStatusCode.OK, Body);
+        handler.Enqueue(HttpStatusCode.OK, Body);
+        using GitHubRestClient client = new(Options(), handler);
+
+        string result = await client.GetRateLimitAsync(client.Resolve("public"), TestContext.CancellationToken);
+        await client.GetRateLimitAsync(client.Resolve("enterprise"), TestContext.CancellationToken);
+
+        Assert.AreEqual(Body, result);
+        Assert.AreEqual(HttpMethod.Get, handler.Requests[0].Method);
+        Assert.AreEqual(new Uri("https://api.github.com/rate_limit"), handler.Requests[0].Uri);
+        Assert.AreEqual(new Uri("https://ghe.example/api/v3/rate_limit"), handler.Requests[1].Uri);
+        Assert.IsNull(handler.Requests[0].Body);
+        Dictionary<string, string> headers = handler.Requests[0].Headers;
+        Assert.AreEqual($"Bearer {Token}", headers["Authorization"]);
+        Assert.AreEqual("application/vnd.github+json", headers["Accept"]);
+        Assert.AreEqual("2022-11-28", headers["X-GitHub-Api-Version"]);
+    }
+
+    [TestMethod]
+    public async Task GetRateLimit_EmptyOrErrorResponse_ThrowsWithoutToken()
+    {
+        GitHubRecordingHandler handler = new();
+        handler.Enqueue(HttpStatusCode.OK);
+        handler.Enqueue(HttpStatusCode.NotFound, """{"message":"Rate limiting is not enabled."}""");
+        using GitHubRestClient client = new(Options(), handler);
+        GitHubInstance target = client.Resolve("enterprise");
+
+        McpException empty = await Assert.ThrowsExactlyAsync<McpException>(() => client.GetRateLimitAsync(target, TestContext.CancellationToken));
+        McpException notFound = await Assert.ThrowsExactlyAsync<McpException>(() => client.GetRateLimitAsync(target, TestContext.CancellationToken));
+
+        Assert.AreEqual("GitHub 'enterprise' GET rate_limit returned no content.", empty.Message);
+        Assert.AreEqual("GitHub 'enterprise' GET rate_limit failed (HTTP 404): Rate limiting is not enabled.", notFound.Message);
+        Assert.DoesNotContain(Token, empty.Message + notFound.Message);
+    }
+
+    [TestMethod]
     public async Task Send_NoContent_ReturnsNull()
     {
         GitHubRecordingHandler handler = new();

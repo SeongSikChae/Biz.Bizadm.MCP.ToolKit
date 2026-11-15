@@ -12,6 +12,7 @@ namespace Biz.Bizadm.MCP.ToolKit.GitHub;
 internal sealed class GitHubRestClient : IDisposable
 {
     internal const string ApiVersion = "2022-11-28";
+    internal const string RateLimitPath = "rate_limit";
     private const int MaxErrorBodyLength = 200;
 
     private static readonly string UserAgent = $"Biz.Bizadm.MCP.ToolKit/{typeof(GitHubRestClient).Assembly.GetName().Version?.ToString(3) ?? "0.0.0"}";
@@ -85,6 +86,14 @@ internal sealed class GitHubRestClient : IDisposable
             return text.Length == 0 ? null : text;
         }
     }
+
+    /// <summary><c>GET rate_limit</c>으로 Token 사용자의 rate limit 상태를 조회하고 GitHub 응답 본문을 반환한다.</summary>
+    /// <remarks>이 호출은 GitHub 기본 한도에 포함되지 않는다.</remarks>
+    /// <param name="instance">호출할 인스턴스(<see cref="Resolve"/> 결과)</param>
+    /// <param name="cancellationToken">호출자 취소. 취소는 감싸지 않고 그대로 전파한다.</param>
+    public async Task<string> GetRateLimitAsync(GitHubInstance instance, CancellationToken cancellationToken)
+        => await SendAsync(instance, HttpMethod.Get, RateLimitPath, null, cancellationToken).ConfigureAwait(false)
+            ?? throw new McpException($"GitHub '{instance.Name}' GET {RateLimitPath} returned no content.");
 
     /// <summary>오류 응답 요약. JSON이면 <c>message</c>와 <c>errors</c>, 아니면 본문 앞부분</summary>
     internal static string DescribeError(string body)
