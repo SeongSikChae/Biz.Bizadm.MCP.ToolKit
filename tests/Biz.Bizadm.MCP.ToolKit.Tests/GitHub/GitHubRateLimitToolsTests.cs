@@ -35,7 +35,11 @@ public sealed class GitHubRateLimitToolsTests
         using GitHubRestClient client = new(GitHubRestClientTests.Options(), handler);
         GitHubRateLimitTools tools = new(client);
 
-        McpException missing = await Assert.ThrowsExactlyAsync<McpException>(() => tools.GetRateLimit(null, TestContext.CancellationToken));
+        // 다른 REST Tool처럼 인스턴스 오류도 동기 예외가 아니라 실패한 Task로 전달된다
+        Task<string> pending = tools.GetRateLimit(null, TestContext.CancellationToken);
+        Assert.IsTrue(pending.IsFaulted);
+
+        McpException missing = await Assert.ThrowsExactlyAsync<McpException>(() => pending);
         McpException unknown = await Assert.ThrowsExactlyAsync<McpException>(() => tools.GetRateLimit("nope", TestContext.CancellationToken));
 
         Assert.AreEqual("instance is required. Registered instances: public, enterprise", missing.Message);
