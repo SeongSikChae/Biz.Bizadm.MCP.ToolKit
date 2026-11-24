@@ -37,10 +37,55 @@ public sealed class GitHubRegistrationTests
 
         CollectionAssert.AreEqual(new[]
         {
-            "github_call_tool", "github_create_annotated_tag", "github_create_lightweight_tag", "github_create_release",
-            "github_delete_ref", "github_delete_release", "github_delete_release_asset", "github_get_rate_limit",
-            "github_list_instances", "github_list_tools", "github_update_ref", "github_update_release", "github_upload_release_asset",
+            "github_call_tool", "github_create_annotated_tag", "github_create_lightweight_tag", "github_create_milestone", "github_create_release",
+            "github_delete_milestone", "github_delete_ref", "github_delete_release", "github_delete_release_asset", "github_get_milestone", "github_get_rate_limit",
+            "github_list_instances", "github_list_milestones", "github_list_tools", "github_update_milestone", "github_update_ref", "github_update_release", "github_upload_release_asset",
         }, names);
+    }
+
+    [TestMethod]
+    public void WithGitHubTools_MilestoneToolAnnotationsAndSchemaMatchDesign()
+    {
+        using ServiceProvider provider = CreateServices(o => o.Instances.Add(Instance())).BuildServiceProvider();
+        Dictionary<string, McpServerTool> tools = provider.GetServices<McpServerTool>().ToDictionary(t => t.ProtocolTool.Name);
+
+        foreach (string name in new[] { "github_list_milestones", "github_get_milestone" })
+        {
+            ToolAnnotations a = tools[name].ProtocolTool.Annotations!;
+            Assert.IsTrue(a.ReadOnlyHint, name);
+            Assert.IsTrue(a.IdempotentHint, name);
+            Assert.IsFalse(a.DestructiveHint, name);
+            Assert.IsTrue(a.OpenWorldHint, name);
+        }
+        ToolAnnotations create = tools["github_create_milestone"].ProtocolTool.Annotations!;
+        Assert.IsFalse(create.ReadOnlyHint);
+        Assert.IsFalse(create.IdempotentHint);
+        Assert.IsFalse(create.DestructiveHint);
+        Assert.IsTrue(create.OpenWorldHint);
+        foreach (string name in new[] { "github_update_milestone", "github_delete_milestone" })
+        {
+            ToolAnnotations a = tools[name].ProtocolTool.Annotations!;
+            Assert.IsFalse(a.ReadOnlyHint, name);
+            Assert.IsTrue(a.IdempotentHint, name);
+            Assert.IsTrue(a.DestructiveHint, name);
+            Assert.IsTrue(a.OpenWorldHint, name);
+        }
+
+        string[] common = ["instance", "owner", "repo"];
+        Dictionary<string, string[]> inputs = new()
+        {
+            ["github_list_milestones"] = ["state", "sort", "direction", "perPage", "page"],
+            ["github_get_milestone"] = ["milestoneNumber"],
+            ["github_create_milestone"] = ["title", "state", "description", "dueOn"],
+            ["github_update_milestone"] = ["milestoneNumber", "title", "state", "description", "dueOn", "clearDescription", "clearDueOn"],
+            ["github_delete_milestone"] = ["milestoneNumber"],
+        };
+        foreach ((string name, string[] extra) in inputs)
+        {
+            System.Text.Json.JsonElement props = tools[name].ProtocolTool.InputSchema.GetProperty("properties");
+            foreach (string p in common.Concat(extra))
+                Assert.IsTrue(props.TryGetProperty(p, out _), $"{name}.{p}");
+        }
     }
 
     [TestMethod]

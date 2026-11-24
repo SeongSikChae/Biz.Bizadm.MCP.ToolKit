@@ -112,7 +112,7 @@ builder.Services.AddMcpServer()
 
 ### GitHub Tool 등록
 
-GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다. GitHub MCP Server가 노출하지 않는 태그·ref 쓰기, 릴리스 쓰기, rate limit 조회는 GitHub REST API를 직접 부르는 Tool(태그·ref 4개, 릴리스 5개, rate limit 1개)로 함께 등록됩니다.
+GitHub MCP Server(원격 `https://api.githubcopilot.com/mcp/` 또는 자체 호스팅 `github-mcp-server` HTTP 모드)를 여러 대 등록하고, 게이트웨이 Tool 3개로 인스턴스를 골라 중계합니다. 동작은 Jenkins 중계와 같습니다. GitHub MCP Server가 노출하지 않는 태그·ref 쓰기, 릴리스 쓰기, rate limit 조회, 마일스톤 조회·쓰기는 GitHub REST API를 직접 부르는 Tool(태그·ref 4개, 릴리스 5개, rate limit 1개, 마일스톤 5개)로 함께 등록됩니다.
 
 ```csharp
 using Biz.Bizadm.MCP.ToolKit.GitHub;
@@ -203,6 +203,7 @@ builder.Services.AddMcpServer()
 | GitHub 태그·ref (REST) | `Tools.GitHub.GitHubRefTools` | `WithGitHubTools(...)` | 4 |
 | GitHub 릴리스 (REST) | `Tools.GitHub.GitHubReleaseTools` | `WithGitHubTools(...)` | 5 |
 | GitHub rate limit (REST) | `Tools.GitHub.GitHubRateLimitTools` | `WithGitHubTools(...)` | 1 |
+| GitHub 마일스톤 (REST) | `Tools.GitHub.GitHubMilestoneTools` | `WithGitHubTools(...)` | 5 |
 | NuGet 피드 (REST) | `Tools.NuGet.NuGetTools` | `WithNuGetTools(...)` | 8 |
 
 각 Tool 명세의 표기:
@@ -1938,6 +1939,25 @@ GitHub MCP Server가 노출하지 않는 rate limit 조회를 GitHub REST API로
 - 인스턴스 Token 사용자의 한도다. `resources`(core, search, graphql 등)별 `limit`·`used`·`remaining`·`reset`(UTC epoch 초)을 담는다. 이 호출은 기본 한도에 포함되지 않아 한도를 넘긴 뒤에도 쓸 수 있다.
 - GitHub Enterprise Server에서 rate limit이 꺼져 있으면 `HTTP 404` 오류가 날 수 있다.
 - 오류 형식·Token 비노출·재시도 없음은 태그·ref Tool과 같다.
+
+### GitHub 마일스톤 (REST) — `Tools.GitHub.GitHubMilestoneTools`
+
+GitHub MCP Server가 노출하지 않는 마일스톤 조회·생성·수정(닫기·다시 열기 포함)·삭제를 GitHub REST API로 직접 처리한다. 모두 `instance`, `owner`, `repo`가 필수이다.
+
+| Tool | 추가 파라미터 | REST | 힌트 | 반환 |
+| --- | --- | --- | --- | --- |
+| `github_list_milestones` | `state`(`open`/`closed`/`all`), `sort`(`due_on`/`completeness`), `direction`(`asc`/`desc`), `perPage`(1~100), `page`(1 이상). 모두 선택 | `GET milestones` | 읽기 전용 · 멱등 · 외부 접근 | GitHub 마일스톤 배열 그대로 |
+| `github_get_milestone` | `milestoneNumber`(필수) | `GET milestones/{number}` | 읽기 전용 · 멱등 · 외부 접근 | GitHub 마일스톤 응답 그대로 |
+| `github_create_milestone` | `title`(필수), `state`(`open`/`closed`), `description`, `dueOn` | `POST milestones` | 쓰기 · 외부 접근 | GitHub 마일스톤 응답 그대로 |
+| `github_update_milestone` | `milestoneNumber`(필수), `title`, `state`(`open`/`closed`), `description`, `dueOn`, `clearDescription`, `clearDueOn`(준 값만, 하나 이상) | `PATCH milestones/{number}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | GitHub 마일스톤 응답 그대로 |
+| `github_delete_milestone` | `milestoneNumber`(필수) | `DELETE milestones/{number}` | 쓰기 · 파괴적 · 멱등 · 외부 접근 | `{"deleted":{"milestoneNumber":N}}` |
+
+- `milestoneNumber`는 마일스톤의 `number`(저장소 안 번호)이며 응답의 `id`가 아니다.
+- `dueOn`은 `YYYY-MM-DD`이며 GitHub에는 UTC 정오(`YYYY-MM-DDT12:00:00Z`)로 보낸다. `clearDescription`·`clearDueOn`을 true로 주면 해당 필드를 `null`로 보내 지운다(`description`과 `clearDescription`, `dueOn`과 `clearDueOn`은 함께 줄 수 없다). 닫기·다시 열기는 `github_update_milestone`의 `state`로 한다.
+- `state`·`sort`·`direction`은 공백을 뗀 뒤 위에 적은 소문자 값과 정확히 같아야 하며, 대문자가 섞이면 요청 없이 오류다.
+- 필요 권한: 조회는 저장소 권한 Issues·Pull requests의 읽기, 생성·수정·삭제는 두 권한의 쓰기(GitHub 문서의 fine-grained 토큰 권한 표 기준). 두 권한이 모두 필요한지 하나면 되는지는 미확인이며, 권한이 모자라면 GitHub가 403 또는 404를 돌려줄 수 있다(미확인).
+- 이슈·PR에 마일스톤을 붙이고 떼는 일은 `github_call_tool`로 GitHub MCP Server의 `issue_write`(`milestone`)를 부른다.
+- 오류 형식·Token 비노출·재시도 없음은 태그·ref Tool과 같다. 오류 메시지의 경로에는 쿼리를 넣지 않는다.
 
 ### NuGet 피드 (REST) — `Tools.NuGet.NuGetTools`
 

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>V01_01 마일스톤 Tool 구현</title>
+<style>
+  body { font-family: "Malgun Gothic", sans-serif; max-width: 960px; margin: 32px auto; padding: 0 16px; color: #1f2933; line-height: 1.6; }
+  h1 { font-size: 22px; margin-bottom: 12px; }
+  h2 { font-size: 16px; margin-top: 32px; border-bottom: 1px solid #d9dee4; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid #d9dee4; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f3f5f7; white-space: nowrap; }
+  .pass { color: #0b7a3b; font-weight: 600; white-space: nowrap; }
+  .fail { color: #b42318; font-weight: 600; white-space: nowrap; }
+  .skip { color: #8a6100; font-weight: 600; white-space: nowrap; }
+  .summary { border: 1px solid #d9dee4; border-left: 6px solid #0b7a3b; background: #f7faf8; padding: 12px 16px; margin: 12px 0 20px; }
+  .summary.bad { border-left-color: #b42318; background: #fdf6f5; }
+  .summary.warn { border-left-color: #8a6100; background: #fdfaf2; }
+  .summary p { margin: 4px 0; }
+  .counts span { display: inline-block; margin-right: 16px; }
+  .meta { width: auto; font-size: 13px; color: #52606d; }
+  .meta th, .meta td { border: none; padding: 2px 12px 2px 0; background: none; }
+  details { border: 1px solid #d9dee4; border-radius: 4px; margin: 8px 0; padding: 0 12px; }
+  details[open] { padding-bottom: 8px; }
+  summary { cursor: pointer; padding: 8px 0; font-size: 14px; }
+  summary b { margin-right: 8px; }
+  details p, details li { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>V01_01 마일스톤 Tool 구현</h1>
+
+<div class="summary warn">
+  <p><strong>다섯 마일스톤 Tool의 요청 모양·입력 오류·등록·README는 모두 확인했고, 실제 GitHub에 쓰는 R01-A4만 미확인이다.</strong></p>
+  <p class="counts"><span class="pass">통과 12</span><span class="fail">미달 0</span><span class="skip">미확인 1</span></p>
+  <p>정해야 할 것: 없음. R01-A4는 새 버전을 배포한 Bizadm MCP 서버와 사용자의 생성·삭제 승인이 있어야 확인할 수 있다.</p>
+</div>
+
+<table class="meta">
+  <tr><th>태스크</th><td>T01_01</td></tr>
+  <tr><th>확인한 날짜</th><td>2026-11-24</td></tr>
+  <tr><th>확인한 커밋</th><td>5a1520b + 작업 트리</td></tr>
+  <tr><th>차수</th><td>1</td></tr>
+</table>
+
+<h2>판정</h2>
+<table>
+  <tr><th>ID</th><th>기준</th><th>결과</th><th>근거</th></tr>
+  <tr><td>R01-A4</td><td>배포된 서버로 <code>dueOn=2026-12-31</code> 마일스톤을 만들면 응답과 GitHub 화면의 마감일이 모두 2026-12-31이다</td><td class="skip">미확인</td><td>새 버전이 배포된 Bizadm MCP 서버가 없고 실제 저장소에 쓰는 일이라 사용자 승인이 필요해 실행하지 않았다.</td></tr>
+  <tr><td>R01-A1</td><td>목록 Tool이 준 값만 쿼리로 보내고 응답을 그대로 반환한다</td><td class="pass">통과</td><td><code>ListMilestones_SendsGivenQueryAndReturnsResponse</code>(쿼리 5개 순서대로, 본문 null, 반환 같음), <code>ListMilestones_NoOptions_SendsWithoutQuery</code>(쿼리 없음) 통과.</td></tr>
+  <tr><td>R01-A2</td><td>조회 Tool이 <code>GET .../milestones/3</code>을 보낸다</td><td class="pass">통과</td><td><code>GetMilestone_GetsByNumberAndReturnsResponse</code> 통과.</td></tr>
+  <tr><td>R01-A3</td><td>생성 Tool이 준 값만 본문에 담는다(<code>due_on</code>은 UTC 정오)</td><td class="pass">통과</td><td><code>CreateMilestone_PostsOnlyGivenFields</code>: 본문이 기대 문자열과 글자까지 같음.</td></tr>
+  <tr><td>R01-A5</td><td>수정 Tool이 준 값만 보내고 clear 플래그는 null로 보낸다</td><td class="pass">통과</td><td><code>UpdateMilestone_PatchesOnlyGivenFields</code>, <code>UpdateMilestone_ClearFlags_SendNull</code> 통과.</td></tr>
+  <tr><td>R01-A6</td><td>삭제 Tool이 <code>DELETE</code> 뒤 <code>{"deleted":{"milestoneNumber":3}}</code>을 반환한다</td><td class="pass">통과</td><td><code>DeleteMilestone_ReturnsDeletedNumber</code>(204) 통과.</td></tr>
+  <tr><td>R01-A7</td><td>입력 오류마다 계약의 문구로 실패하고 요청이 0건이다</td><td class="pass">통과</td><td><code>InvalidInput_ThrowsWithoutRequest</code> 데이터 행 전부(공통 오류 5 Tool 각각, 목록·생성·수정 오류) 통과. 실패한 <code>Task</code>로 전달됨도 확인.</td></tr>
+  <tr><td>R01-A8</td><td>404 오류가 기존 형식이고 Token이 없다</td><td class="pass">통과</td><td><code>GitHubError_UsesExistingFormatWithoutToken</code> 통과.</td></tr>
+  <tr><td>R01-A9</td><td>다섯 Tool 등록, 힌트, 입력 스키마가 설계와 같다</td><td class="pass">통과</td><td><code>WithGitHubTools_RegistersGatewayAndRefTools</code>, <code>WithGitHubTools_MilestoneToolAnnotationsAndSchemaMatchDesign</code> 통과.</td></tr>
+  <tr><td>R01-A10</td><td>README 제공 Tool 표·절·등록 소개문·권한 줄이 맞다</td><td class="pass">통과</td><td>grep 1: 표 줄(206)과 절 제목(1943). 2: 절 표에 다섯 Tool 각 한 줄(1949~1953, 설명 줄 1956에도 <code>github_update_milestone</code> 언급이 한 번 더 있음). 3: 소개문(115)에 "마일스톤 5개". 4: 권한 줄(1958)에 Issues·Pull requests와 "미확인".</td></tr>
+  <tr><td>R01-A11</td><td>목록 오류 메시지에 쿼리가 없다</td><td class="pass">통과</td><td><code>ListMilestones_GitHubError_MessageHasNoQuery</code>: 메시지에 <code>?</code> 없음, 실제 요청에는 <code>?state=all</code>이 나감.</td></tr>
+  <tr><td>R01-A12</td><td>200 빈 본문이면 <code>returned no content.</code> 오류다</td><td class="pass">통과</td><td><code>GetMilestone_EmptyBody_ThrowsNoContent</code> 통과.</td></tr>
+  <tr><td>R01-A13</td><td>대문자 값 목록 입력을 요청 없이 거부한다</td><td class="pass">통과</td><td><code>UppercaseChoice_IsRejectedWithoutRequest</code> 통과.</td></tr>
+</table>
+
+<h2>정해야 할 것</h2>
+<ul>
+  <li>없음</li>
+</ul>
+
+<h2>자세히</h2>
+<details>
+  <summary><b>빌드·테스트</b></summary>
+  <p><code>dotnet build Biz.Bizadm.MCP.ToolKit.slnx</code>: 경고 0, 오류 0, 끝 코드 0. <code>dotnet test tests/Biz.Bizadm.MCP.ToolKit.Tests/Biz.Bizadm.MCP.ToolKit.Tests.csproj</code>: 끝 코드 0, 전체 727, 통과 716, 실패 0, 건너뜀 11(기존 Windows 아닌 환경용 저장소·디스크 테스트). <code>GitHubMilestoneToolsTests</code>는 62건 모두 통과.</p>
+</details>
+<details>
+  <summary><b>R01-A4</b> 실제 GitHub 마감일 확인</summary>
+  <p>확인하지 않았다. 단위 테스트는 가짜 처리기로 요청 모양만 보므로, UTC 정오 전송이 GitHub 화면에서 같은 날짜로 보이는지, null로 필드가 지워지는지, 삭제가 204인지, 필요 권한은 여전히 확인되지 않았다.</p>
+</details>
+
+<h2>확인하지 못한 것</h2>
+<ul>
+  <li>R01-A4: 실제 GitHub 동작(마감일 표시, 응답 <code>due_on</code>, 삭제 반환). 새 버전이 배포된 Bizadm MCP 서버, <code>SeongSikChaeGitHub</code> 인스턴스 Token의 마일스톤 쓰기 권한, 사용자의 생성·삭제 승인이 필요하다.</li>
+</ul>
+
+<h2>환경과 남긴 것</h2>
+<details>
+  <summary>확인한 환경, 끝난 뒤의 상태</summary>
+  <ul>
+    <li>Windows, .NET 10(<code>net10.0</code>), MSTest, Git Bash.</li>
+    <li>외부 쓰기 없음: 커밋·push, GitHub 쓰기 호출을 하지 않았다.</li>
+  </ul>
+</details>
+
+<h2>앞 차수</h2>
+<ul>
+  <li>없음</li>
+</ul>
+
+</body>
+</html>

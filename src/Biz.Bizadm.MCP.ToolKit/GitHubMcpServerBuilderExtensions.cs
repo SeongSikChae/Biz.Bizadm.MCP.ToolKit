@@ -9,7 +9,7 @@ public static class GitHubMcpServerBuilderExtensions
 {
     internal const string Label = "GitHub";
 
-    /// <summary>GitHub MCP 중계 Tool(github_list_instances, github_list_tools, github_call_tool), REST 태그·ref Tool(github_create_lightweight_tag, github_create_annotated_tag, github_update_ref, github_delete_ref), REST 릴리스 Tool(github_create_release, github_update_release, github_delete_release, github_upload_release_asset, github_delete_release_asset), REST rate limit Tool(github_get_rate_limit)을 인스턴스 옵션과 함께 등록한다.</summary>
+    /// <summary>GitHub MCP 중계 Tool(github_list_instances, github_list_tools, github_call_tool), REST 태그·ref Tool(github_create_lightweight_tag, github_create_annotated_tag, github_update_ref, github_delete_ref), REST 릴리스 Tool(github_create_release, github_update_release, github_delete_release, github_upload_release_asset, github_delete_release_asset), REST rate limit Tool(github_get_rate_limit), REST 마일스톤 Tool(github_list_milestones, github_get_milestone, github_create_milestone, github_update_milestone, github_delete_milestone)을 인스턴스 옵션과 함께 등록한다.</summary>
     /// <param name="builder">Tool을 등록할 MCP Server 빌더</param>
     /// <param name="configure">GitHub 인스턴스 옵션 설정</param>
     /// <returns>같은 <paramref name="builder"/></returns>
@@ -32,6 +32,7 @@ public static class GitHubMcpServerBuilderExtensions
         builder.WithTools<GitHubRefTools>();
         builder.WithTools<GitHubReleaseTools>();
         builder.WithTools<GitHubRateLimitTools>();
+        builder.WithTools<GitHubMilestoneTools>();
         return builder;
     }
 
